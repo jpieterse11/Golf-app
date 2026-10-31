@@ -2,14 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Match Play Golf</title>
+<title>Golf Scoring</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#166534">
 <meta name="color-scheme" content="light dark">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Match Play">
+<meta name="apple-mobile-web-app-title" content="Golf Scoring">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' fill='%23166534'/%3E%3Ccircle cx='256' cy='300' r='120' fill='%23fff'/%3E%3Crect x='374' y='90' width='12' height='210' fill='%23fff'/%3E%3Cpath d='M386 90v60l64-30z' fill='%23ef4444'/%3E%3C/svg%3E">
 <link rel="apple-touch-icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAALQAAAC0CAIAAACyr5FlAAAEdklEQVR4nO3dMW4TQQCF4QniAKmgpkIU7uAIHAUOxVVyBEoXiIqajiNQrLWyYj97be/svDfzf6IIUpzMjP8ZvM4qPL379rkA57xpPQD4Ig5IxAGJOCARByTigEQckIgDEnFAIg5IxAGJOCARByTigEQckIgDEnFAIg5IxAGJOCARByTigEQckIgDEnFAIg5IxAGJOCARByTigPS29QBw8PfHz/njf1+/fvzwr91YDjg5TP3+8/z7z3PbMRCHtbaJEEeAVokQR4ztEyGOMFsmwtVKpLmPqhc1nBzZqh4kxNGDSokQRz9WT4Q4erNiIsTRp1US4WqlT6tcxRBHV9a9siWOTtR4w4M44tV7H4w4Um1wwwdx5NnsPiDiSLLx7WHEkaHJXYPEYa3tnaTEYYobjHHe88tL6yGUQhy4gDggEQck4oBEHJCIAxJxQCIOSMQBady3z49/H8Zl779/qToSW2PFsTwI9aihQhkijvuauPylRqik5zhWbOLCF++4kj7jqJrF2e/VZSK9xbFlFqfft7NE+omjVRanY+gmkU7e53AoY2Y1mEfEnxyez0QfR0j2yeFZxsx8eFcFxxGx9BGDVFLjCFr0oKG+EhlH3HLHDXiSF0foQicOOyyOxCWexQ0+KY64xT2VNYWYOLKW9YKgiWTEEbSgS6RMJyMONBEQR8o+u0nEpNzjiFjE+/hPzT0ONGQdh//eepD5BK3jQFu+cZjvqrU4T9M3DjRnGofzflqd7WRN44ADx3tI6+2k/a/9/PHu0+7WRy1/yK08D4+BTo7jMk7/uuRRCx/SjVHiOPu8Xn2yTz9hqD7s4vA8YMdkFwd8EAekUeI4e6Fx9erj9BPqXbAYGiWOcvK8Lnyajz9tqDKK2/sctV+N3vfsjtbEbKCTA7ciDkjEAYk4IBEHJOKA5HUpC6vfFEUcBxvctBGHf1ZKGfumjQuI486bNva/9tOfOoOyQBz3GOSk6TyOGvt7nNvDvOJY97X6wv3t83N5q0uV4hbHim7a3yP/XP4CLmUPljex+7R71VmvPXV7clQ1yEnT7clRe3933MTM7uRY8UVZ1v52ezVaOj45Jv5NOLM7OeDDMQ7DA7Y2zyk7xgETpnF47qRKbCdrGgcc+MZhu5/W5TxN3zjQnHUczrtqFeYTtI4DbbnHYb63HuE/Nfc4SsIi3iFiUgFxoJWMOCL22XIp08mIo+Qs6FVBE4mJo0Qtq5I1haQ4StrivhI3+LA4SuASTxKHnRdHCVzouAFPIuMoUcsdNNRXUuMoIYseMUglOI5iv/Tmw7vq6d23z63HsAK3/2shPYtJ9skxs3oyrAbziE5OjlnbI6SbLCa9xTHZPpHOspj0Gcdkm0S6zGLScxyzGpV03MRsiDhmj1cyQhOzseI4tjyUoYI4Nm4cuKqT9zlQA3FAIg5IxAGJOCARByTigEQckIgDEnFAIg5IxAGJOCARByTigEQckIgDEnFAIg5IxAGJOCARByTigEQckIgDEnFAIg5IxAGJOCARByTigPQfJghB0fhBYk8AAAAASUVORK5CYII=">
@@ -176,6 +176,8 @@ var MP = (function () {
     { name: "Green", yards: 5041, rating: "64.9", slope: "110" }
   ];
   /* ---- Course model (built-in Annandale + user courses) ---- */
+  /* NOTE: the "matchplay-course" format id and every "matchplay.golf.*" storage key below are LEGACY internal ids from when the app was called Match Play.
+     Do NOT rename them: that would wipe saved rounds, favorites and courses on users' phones and break shared course files. The app is now "Golf Scoring". */
   var COURSE_FORMAT = "matchplay-course";
   var COURSES_KEY = "matchplay.golf.courses.v1";
   var ANNANDALE = {
@@ -1427,7 +1429,7 @@ if (typeof module !== "undefined") module.exports = MP;
   }
   function viewSetup() {
     var calc = MP.compute(S);
-    var h = "<h1>⛳ Match Play · Setup</h1>";
+    var h = "<h1>⛳ Golf Scoring · Setup</h1>";
     h += "<h2>Game</h2>" + seg("game", [["nassau", "Nassau"], ["skins", "Skins"], ["vegas", "Las Vegas"], ["wolf", "Wolf"]], S.game) + '<p class="sub small" style="margin:6px 2px 0">' + GAME_BLURB[S.game] + "</p>";
     if (S.game === "nassau") {
       h += '<h2>Format</h2>' + seg("format", [["singles", "One on one"], ["bestball", "2 vs 2"], ["wheel", "5-player wheel"]], S.format);
@@ -1872,7 +1874,7 @@ if (typeof module !== "undefined") module.exports = MP;
     else if (a === "expcourse") { exportId = v; render(); window.scrollTo(0, 0); }
     else if (a === "closeexp") { exportId = null; render(); }
     else if (a === "copyexp") { var ta = document.getElementById("exptxt"); if (ta) copyText(ta.value, function () { showToast([{ type: "info", text: "Course text copied" }]); }); }
-    else if (a === "shareexp") { var sc = findC(exportId); if (sc && navigator.share) navigator.share({ title: sc.name + " (Match Play course)", text: MP.exportCourse(sc) }).catch(function () {}); }
+    else if (a === "shareexp") { var sc = findC(exportId); if (sc && navigator.share) navigator.share({ title: sc.name + " (Golf Scoring course)", text: MP.exportCourse(sc) }).catch(function () {}); }
     else if (a === "importcourse") {
       var r = MP.importCourse(impText);
       if (!r.ok) impMsg = { ok: false, errors: r.errors };
