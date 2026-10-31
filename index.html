@@ -135,9 +135,11 @@ select.bad{border-color:var(--red);border-width:2px;background:var(--warn)}
 .badge{display:inline-block;border-radius:8px;background:var(--soft);padding:2px 8px;font-size:12px;font-weight:700;margin-left:6px;vertical-align:middle}
 .cname{font-size:13px;color:var(--sub);margin:2px 2px 6px}
 .h2row{display:flex;align-items:flex-end;justify-content:space-between}
-:root{--amber:#b45309}@media (prefers-color-scheme:dark){:root{--amber:#fbbf24}}
+:root{--amber:#b45309;--blue:#1d4ed8}@media (prefers-color-scheme:dark){:root{--amber:#fbbf24;--blue:#93c5fd}}
 .tag{font-size:11px;font-weight:700;color:var(--ok);margin:3px 2px 0;line-height:1.2;white-space:nowrap}
 .tag.amber{color:var(--amber)}
+.tag.blue{color:var(--blue,#2563eb)}
+.lnk{background:none;border:0;padding:0;margin:3px 0 0 4px;font:inherit;font-size:11px;font-weight:700;color:var(--green);text-decoration:underline;cursor:pointer;min-height:0}
 .pr .ix{width:92px;flex:none}
 .pr .ix input[type=text]{flex:none;width:100%;text-align:center;min-height:44px;padding:4px 6px;font-size:17px}
 .prh{display:flex;gap:8px;padding:0 0 4px;font-size:12px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.04em}
@@ -184,6 +186,7 @@ var MP = (function () {
       format: "bestball",
       names: ["", "", "", "", ""],
       indexes: ["", "", "", "", ""],
+      idxOver: [null, null, null, null, null], /* index typed on Setup for this round only: {name, value} or null */
       idxSrc: [null, null, null, null, null], /* where an auto-filled index came from; null = typed by the user / blank */
       wheelPairs: [true, true, true],
       useHcp: true,
@@ -751,30 +754,38 @@ var MP = (function () {
     if (f && m) return m.date >= f.date ? m : f;
     return m || f || null;
   }
-  /* Fill blank index fields (and refresh untouched auto-filled ones) from the feed/overrides. Never overwrites a value the user typed, and never
-     changes anything once a hole has been scored. state.idxSrc[p] remembers what was auto-filled. Returns true if anything changed. */
-  function autofillIndexes(state, file, manual, today) {
-    if (roundHasScores(state)) return false;
-    var changed = false, p;
+  /* Keeps every player's round index (state.indexes, which all scoring reads) equal to the Players-tab value for that name: the newest of the
+     indexes.json date and the Players-tab manual override date. The ONLY exception is an index the user typed on the Setup page for this round
+     (state.idxOver[p] = {name, value}); that stays until they reset it, clear it, or pick/type a player who has a known index. Changing it never
+     touches the Players tab. Runs any time (also mid-round); callers re-render and everything recalculates. A typed value is recognised by
+     "non-blank and not what we auto-filled". Returns {changed, updates:[{p,name,from,to}]}; updates lists sync-driven changes to a previously set index. */
+  function syncIndexes(state, file, manual, today) {
+    var changed = false, updates = [], p;
     if (!Array.isArray(state.idxSrc) || state.idxSrc.length !== 5) { state.idxSrc = [null, null, null, null, null]; changed = true; }
+    if (!Array.isArray(state.idxOver) || state.idxOver.length !== 5) { state.idxOver = [null, null, null, null, null]; changed = true; }
     for (p = 0; p < 5; p++) {
-      var nmk = normName(state.names[p]), cur = String(state.indexes[p] == null ? "" : state.indexes[p]).trim(), src = state.idxSrc[p];
-      var untouched = !!src && src.value === cur, sameName = !!src && src.name === nmk;
-      var r = nmk ? resolveIndex(file, manual, state.names[p]) : null;
-      if (cur === "" || (untouched && sameName)) {
-        if (r) {
-          if (cur !== r.index || !src || src.source !== r.source || src.date !== r.date || src.name !== nmk) changed = true;
-          state.indexes[p] = r.index; state.idxSrc[p] = { name: nmk, value: r.index, source: r.source, date: r.date };
-        } else if (src && cur === "") { state.idxSrc[p] = null; changed = true; }
-      } else if (untouched && !sameName) { /* auto-filled for a different name: replace or clear */
-        if (r) { state.indexes[p] = r.index; state.idxSrc[p] = { name: nmk, value: r.index, source: r.source, date: r.date }; }
-        else { state.indexes[p] = ""; state.idxSrc[p] = null; }
-        changed = true;
-      } else if (src) { state.idxSrc[p] = null; changed = true; } /* the user typed over it: leave their number alone */
+      var nmk = normName(state.names[p]), cur = String(state.indexes[p] == null ? "" : state.indexes[p]).trim(), src = state.idxSrc[p], o = state.idxOver[p];
+      var r = nmk ? resolveIndex(file, manual, state.names[p]) : null, before = cur;
+      if (o && (typeof o !== "object" || typeof o.value !== "string" || typeof o.name !== "string")) o = null;
+      var ov0 = o ? o.name + "|" + o.value : "";
+      if (o) {
+        if (cur !== o.value) { o = cur === "" ? null : { name: o.name, value: cur }; }                       /* the user edited it on Setup */
+        else if (o.name !== nmk) { o = (o.name === "" || !r) ? { name: nmk, value: o.value } : null; }       /* name changed: keep unless the new player has a known index */
+      } else if (cur !== "" && !(src && src.value === cur)) o = { name: nmk, value: cur };                    /* typed on Setup (or a round saved before this feature) */
+      if (o && r && cleanIndex(o.value) === r.index) o = null;                                               /* typed the same number as the Players tab: just follow it */
+      if (o) { state.indexes[p] = o.value; state.idxSrc[p] = null; }
+      else if (r) { state.indexes[p] = r.index; state.idxSrc[p] = { name: nmk, value: r.index, source: r.source, date: r.date }; }
+      else if (src && src.value === cur && src.name === nmk && cur !== "") { /* no longer listed anywhere: keep the last known value for this round */ }
+      else { state.indexes[p] = ""; state.idxSrc[p] = null; }
+      state.idxOver[p] = o;
+      var now = String(state.indexes[p]);
+      var srcNow = state.idxSrc[p], srcSame = JSON.stringify(src) === JSON.stringify(srcNow);
+      if (now !== before || !srcSame || ov0 !== (o ? o.name + "|" + o.value : "")) changed = true;
+      if (now !== before && before !== "" && now !== "") updates.push({ p: p, name: state.names[p], from: before, to: now });
     }
-    return changed;
+    return { changed: changed, updates: updates };
   }
-
+  function autofillIndexes(state, file, manual, today) { return syncIndexes(state, file, manual, today).changed; }
 
   /* ---- Course library (courses.json) and course requests. Pure; fetch and storage are injected. ---- */
   var LIB_KEY = "matchplay.golf.courselib-cache.v1", REQ_KEY = "matchplay.golf.course-requests.v1";
@@ -863,11 +874,16 @@ var MP = (function () {
     });
     return best;
   }
-  /* Setup "Clear": empties every player slot (names and indexes). Returns true if the round had scores (they are cleared too). Saved roster is untouched. */
+  /* Setup "Clear": back to a fresh round. Empties names, indexes (and their tags / round-only overrides) AND all scores, goes to hole 1.
+     Bet amounts, course, tee and settings stay; the saved roster/favorites and Players-tab overrides are separate stores and untouched.
+     Returns true if there was anything to lose (a name, an index or a score). */
+  function roundHasContent(state) {
+    return roundHasScores(state) || state.names.some(function (n) { return String(n).trim() !== ""; }) || state.indexes.some(function (x) { return String(x).trim() !== ""; });
+  }
   function clearPlayers(state) {
-    var had = roundHasScores(state);
-    state.names = ["", "", "", "", ""]; state.indexes = ["", "", "", "", ""]; state.idxSrc = [null, null, null, null, null];
-    if (had) { state.scores = emptyScores(); state.hole = 0; }
+    var had = roundHasContent(state);
+    state.names = ["", "", "", "", ""]; state.indexes = ["", "", "", "", ""]; state.idxSrc = [null, null, null, null, null]; state.idxOver = [null, null, null, null, null];
+    state.scores = emptyScores(); state.hole = 0; state.view = 0; state.cardView = "front";
     return had;
   }
 
@@ -893,7 +909,7 @@ var MP = (function () {
     DEFAULT_SI: DEFAULT_SI, DEFAULT_PAR: DEFAULT_PAR, TEES: TEES, HOLES: HOLES, WHEEL_PAIRS: WHEEL_PAIRS, SAMPLE: SAMPLE,
     MANUAL_KEY: MANUAL_KEY, IDXCACHE_KEY: IDXCACHE_KEY, isoDate: isoDate, validIsoDate: validIsoDate, fmtDate: fmtDate, isStaleDate: isStaleDate, cleanIndex: cleanIndex, parseIndexFile: parseIndexFile,
     loadIndexCache: loadIndexCache, fetchIndexes: fetchIndexes, loadManual: loadManual, saveManual: saveManual, setManualIndex: setManualIndex, renameManual: renameManual, removeManual: removeManual,
-    resolveIndex: resolveIndex, autofillIndexes: autofillIndexes,
+    resolveIndex: resolveIndex, autofillIndexes: autofillIndexes, syncIndexes: syncIndexes, roundHasContent: roundHasContent,
     LIB_KEY: LIB_KEY, REQ_KEY: REQ_KEY, parseCourseLibrary: parseCourseLibrary, loadLibraryCache: loadLibraryCache, fetchCourseLibrary: fetchCourseLibrary,
     loadRequests: loadRequests, saveRequests: saveRequests, addRequest: addRequest, removeRequest: removeRequest, requestText: requestText, requestMatch: requestMatch, nameTokens: nameTokens, clearPlayers: clearPlayers,
     emptyScores: emptyScores, defaultState: defaultState, strokesOn: strokesOn, parseIndex: parseIndex, money: money, signedMoney: signedMoney,
@@ -997,11 +1013,22 @@ if (typeof module !== "undefined") module.exports = MP;
     return p < 2 ? "Wheel player " + (p + 1) : "Player " + (p + 1);
   }
   function today() { return MP.isoDate(); }
-  function applyAuto() { var ch = MP.autofillIndexes(S, IDX.file, MAN, today()); if (ch) save(); return ch; }
+  function applyAuto() {
+    var had = MP.roundHasScores(S), r = MP.syncIndexes(S, IDX.file, MAN, today());
+    if (r.changed) save();
+    if (had && r.updates.length) showToast(r.updates.map(function (u) { var n = String(u.name || "").trim().split(/\s+/)[0] || ("P" + (u.p + 1)); return { type: "info", text: n + "'s index updated to " + u.to + " — strokes recalculated" }; }));
+    return r.changed;
+  }
+  function playersVal(p) { return MP.resolveIndex(IDX.file, MAN, S.names[p]); }
+  function overTag(p, v) {
+    var pv = playersVal(p), vv = MP.cleanIndex(v);
+    if (!String(v || "").trim() || (pv && vv === pv.index)) return "";
+    return '<span class="tag blue">manual for this round</span>' + (pv ? ' <button type="button" class="lnk" data-act="idxreset" data-p="' + p + '">reset to Players value (' + esc(pv.index) + ")</button>" : "");
+  }
   function typing() { var a = document.activeElement; return !!a && a !== document.body && (a.tagName === "INPUT" || a.tagName === "TEXTAREA") && app.contains(a); }
   function idxApply() {
     if (typing()) { idxDirty = true; return; }
-    idxDirty = false; applyAuto(); if (S.screen === "setup" || S.screen === "players") render();
+    idxDirty = false; applyAuto(); if (S.screen === "setup" || S.screen === "players" || S.screen === "hole" || S.screen === "card" || S.screen === "results") render();
   }
   function refreshIdx(force) {
     if (idxBusy || (!force && Date.now() - lastIdxFetch < 4000)) return;
@@ -1017,10 +1044,10 @@ if (typeof module !== "undefined") module.exports = MP;
     var v = String(S.indexes[p] || "").trim(), bad = tried && idxBad(p), src = S.idxSrc && S.idxSrc[p];
     return '<div><label class="f">Today\'s handicap index</label><div class="idx"><input type="text" inputmode="decimal" autocomplete="off" autocapitalize="off" spellcheck="false" data-k="indexes" data-i="' + p + '" value="' + esc(v) + '" placeholder="e.g. 12.4" class="' + (bad ? "bad" : "") + '" aria-label="Today\'s handicap index, player ' + (p + 1) + '">' +
       '<button type="button" class="plus' + (v.charAt(0) === "+" ? " on" : "") + '" data-act="plus" data-p="' + p + '" aria-label="Toggle plus handicap" title="Plus handicap (better than scratch)">+</button></div>' +
-      (src && src.value === v ? '<div data-tag="' + p + '">' + tagFor(src.source, src.date) + "</div>" : '<div data-tag="' + p + '"></div>') + "</div>";
+      (S.idxOver && S.idxOver[p] ? '<div data-tag="' + p + '">' + overTag(p, v) + "</div>" : src && src.value === v ? '<div data-tag="' + p + '">' + tagFor(src.source, src.date) + "</div>" : '<div data-tag="' + p + '"></div>') + "</div>";
   }
   function idxMsg() {
-    return '<div class="msg bad" id="idxmsg"' + (tried && MP.missingIndexes(S).length ? "" : " hidden") + "><b>Enter today's index for each player.</b> Indexes fill in automatically for players with a known index (Players tab). Use a + for plus handicaps (e.g. +1.2).</div>";
+    return '<div class="msg bad" id="idxmsg"' + (tried && MP.missingIndexes(S).length ? "" : " hidden") + "><b>Enter today's index for each player.</b> Players with an index on the Players tab fill in automatically; others need one typed here. Use a + for plus handicaps (e.g. +1.2).</div>";
   }
   function allC() { return MP.sortCourses(MP.allCourses(C, LIB)); }
   function findC(id) { return MP.findCourse(C, id, LIB); }
@@ -1203,7 +1230,7 @@ if (typeof module !== "undefined") module.exports = MP;
     h += idxMsg().replace('id="idxmsg"', 'id="idxmsg2"') + '<button class="btn pri" data-act="go" data-v="hole">Start scoring ›</button><div style="height:10px"></div>' +
       '<button class="btn dng" data-act="newround">New round (clear scores)</button><div style="height:10px"></div>' +
       '<button class="btn" data-act="sample">Load sample wheel round</button>' +
-      '<p class="sub small" style="text-align:center">Round scores save automatically on this device. Handicap indexes fill in from the Players tab for each new round (blank if unknown).</p>';
+      '<p class="sub small" style="text-align:center">Round scores save automatically on this device. Each index here follows the Players tab (and stays in sync); type over it to use a different index for this round only.</p>';
     return h;
   }
 
@@ -1417,12 +1444,12 @@ if (typeof module !== "undefined") module.exports = MP;
   function newRound() {
     if (!window.confirm("Start a new round? This clears all scores. Indexes are refreshed from the Players tab (blank if a player has none). Names and bet amounts are kept.")) return;
     var liveNR = findC(S.courseId); if (liveNR && MP.courseChanged(S, liveNR)) switchCourse(liveNR);
-    S.scores = MP.emptyScores(); undo = []; S.indexes = ["", "", "", "", ""]; S.idxSrc = [null, null, null, null, null]; applyAuto(); S.hole = 0; S.view = 0; S.screen = "setup"; tried = false; save(); render(); window.scrollTo(0, 0);
+    S.scores = MP.emptyScores(); undo = []; S.indexes = ["", "", "", "", ""]; S.idxSrc = [null, null, null, null, null]; S.idxOver = [null, null, null, null, null]; applyAuto(); S.hole = 0; S.view = 0; S.screen = "setup"; tried = false; save(); render(); window.scrollTo(0, 0);
   }
   function sample() {
     if (!window.confirm("Replace the current round with the sample wheel round (Al, Bob, Chris, Dan, Eddie) on Annandale?")) return;
     var d = MP.SAMPLE;
-    undo = []; MP.applyCourse(S, MP.ANNANDALE, "Blue"); S.format = "wheel"; S.names = d.names.slice(); S.indexes = d.indexes.slice(); S.idxSrc = [null, null, null, null, null]; S.scores = d.scores.map(function (r) { return r.map(String); });
+    undo = []; MP.applyCourse(S, MP.ANNANDALE, "Blue"); S.format = "wheel"; S.names = d.names.slice(); S.indexes = d.indexes.slice(); S.idxSrc = [null, null, null, null, null]; S.idxOver = [null, null, null, null, null]; S.scores = d.scores.map(function (r) { return r.map(String); });
     S.tee = "Blue"; S.slope = "125"; S.rating = "70.4"; S.allowance = "90"; S.front = S.back = S.overall = "10"; S.autoPress = true; S.useHcp = true; S.view = 0; S.hole = 0; tried = false;
     save(); render();
   }
@@ -1475,15 +1502,16 @@ if (typeof module !== "undefined") module.exports = MP;
     else if (a === "cardView" || a === "skinMode" || a === "skinLeft") { S[a] = v; save(); render(); }
     else if (a === "plus") {
       var pi2 = Number(el.getAttribute("data-p")), cv = String(S.indexes[pi2] || "").trim();
-      S.indexes[pi2] = cv.charAt(0) === "+" ? cv.slice(1) : "+" + cv; S.idxSrc[pi2] = null; save(); render();
+      S.indexes[pi2] = cv.charAt(0) === "+" ? cv.slice(1) : "+" + cv; S.idxSrc[pi2] = null; var ptv = String(S.indexes[pi2]).trim(); S.idxOver[pi2] = ptv ? { name: MP.normName(S.names[pi2]), value: ptv } : null; applyAuto(); save(); render();
       var f = app.querySelector('input[data-k="indexes"][data-i="' + pi2 + '"]'); if (f) f.focus();
     }
+    else if (a === "idxreset") { S.indexes[p] = ""; S.idxSrc[p] = null; S.idxOver[p] = null; applyAuto(); save(); render(); }
     else if (a === "refreshidx") refreshIdx(true);
     else if (a === "refreshlib") refreshLib(true);
     else if (a === "adv") { adv = !adv; render(); }
     else if (a === "clearplayers") {
-      if (MP.roundHasScores(S) && !window.confirm("Clear all players AND all scores for this round? The scores can't be recovered. Your saved players and favorites are not affected.")) return;
-      MP.clearPlayers(S); undo = []; tried = false; save(); render();
+      if (MP.roundHasContent(S) && !window.confirm("Clear players and all scores? This empties every player and index and erases all scores, back to hole 1. Saved players, favorites, the course, tee and bet amounts are not affected.")) return;
+      MP.clearPlayers(S); undo = []; tried = false; idxDirty = false; var tb = document.getElementById("toast"); if (tb) tb.innerHTML = ""; save(); render(); window.scrollTo(0, 0);
     }
     else if (a === "addreq") {
       var rr = MP.addRequest(REQS, reqName, reqCity, today());
@@ -1528,7 +1556,7 @@ if (typeof module !== "undefined") module.exports = MP;
     if (k === "slope" || k === "rating") { S.tee = "Custom"; S.teePar = ""; var sel = app.querySelector('select[data-k="tee"]'); if (sel) sel.value = "Custom"; }
     save();
     if (k === "indexes") {
-      if (S.idxSrc) S.idxSrc[Number(i)] = null; var tg = app.querySelector('[data-tag="' + i + '"]'); if (tg) tg.innerHTML = ""; save();
+      if (S.idxSrc) S.idxSrc[Number(i)] = null; if (!S.idxOver) S.idxOver = [null, null, null, null, null]; S.idxOver[Number(i)] = el.value.trim() === "" ? null : { name: MP.normName(S.names[Number(i)]), value: el.value.trim() }; var tg = app.querySelector('[data-tag="' + i + '"]'); if (tg) tg.innerHTML = overTag(Number(i), el.value); save();
       var pl = el.parentNode.querySelector(".plus"); if (pl) pl.classList.toggle("on", el.value.trim().charAt(0) === "+");
       if (tried) {
         el.classList.toggle("bad", idxBad(Number(i)));
