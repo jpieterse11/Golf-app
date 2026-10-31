@@ -272,7 +272,7 @@ var MP = (function () {
       var g = x.game, n;
       if (g === "skins") { n = Math.max(2, Math.min(5, Math.round(Number(x.skinN)) || 4)); return [0, 1, 2, 3, 4].slice(0, n); }
       if (g === "vegas") return [0, 1, 2, 3];
-      if (g === "wolf") return Number(x.wolfN) === 5 ? [0, 1, 2, 3, 4] : [0, 1, 2, 3];
+      if (g === "wolf") return [0, 1, 2, 3, 4].slice(0, wolfCount(x.wolfN));
       return activePlayers(x.format);
     }
     return x === "singles" ? [0, 1] : x === "bestball" ? [0, 1, 2, 3] : [0, 1, 2, 3, 4];
@@ -282,7 +282,7 @@ var MP = (function () {
     var d = defaultState();
     if (GAMES.indexOf(state.game) < 0) state.game = "nassau";
     var sn = Math.round(Number(state.skinN)); state.skinN = sn >= 2 && sn <= 5 ? sn : 4;
-    state.wolfN = Number(state.wolfN) === 5 ? 5 : 4;
+    state.wolfN = wolfCount(state.wolfN);
     ["skinMode", "vegasMode", "wolfMode"].forEach(function (k) { if (state[k] !== "net" && state[k] !== "gross") state[k] = d[k]; });
     var o = state.wolfOrder, okOrder = Array.isArray(o) && o.length === 5 && [0, 1, 2, 3, 4].every(function (i) { return o.indexOf(i) >= 0; });
     if (!okOrder) state.wolfOrder = [0, 1, 2, 3, 4];
@@ -592,9 +592,10 @@ var MP = (function () {
   }
   function cents(x) { return Math.round(x * 100) / 100 + 0; }
 
-  /* ---- Wolf (4 or 5 players). The wolf rotates through the tee order, holes 1-18 (no catch-up rule on 17-18). ---- */
+  /* ---- Wolf (3, 4 or 5 players). The wolf rotates through the tee order, holes 1-18 (no catch-up rule on 17-18). ---- */
+  function wolfCount(v) { v = Math.round(Number(v)); return v === 3 || v === 5 ? v : 4; }
   function wolfOrderOf(state) {
-    var n = Number(state.wolfN) === 5 ? 5 : 4, o = Array.isArray(state.wolfOrder) ? state.wolfOrder : [0, 1, 2, 3, 4];
+    var n = wolfCount(state.wolfN), o = Array.isArray(state.wolfOrder) ? state.wolfOrder : [0, 1, 2, 3, 4];
     var out = o.filter(function (x) { return x >= 0 && x < n; });
     return out.length === n ? out : [0, 1, 2, 3, 4].slice(0, n);
   }
@@ -1033,7 +1034,7 @@ var MP = (function () {
     COURSE_FORMAT: COURSE_FORMAT, COURSES_KEY: COURSES_KEY, ANNANDALE: ANNANDALE, checkCourse: checkCourse, exportCourse: exportCourse, importCourse: importCourse, snapshotOf: snapshotOf,
     newCourseId: newCourseId, loadCourses: loadCourses, saveCourses: saveCourses, allCourses: allCourses, sortCourses: sortCourses, findCourse: findCourse, uniqueCourseName: uniqueCourseName,
     applyTee: applyTee, applyCourse: applyCourse, courseChanged: courseChanged,
-    skins: skins, birdies: birdies, vegas: vegas, vegasNumber: vegasNumber, wolfGame: wolfGame, wolfOf: wolfOf, wolfOrderOf: wolfOrderOf, emptyWolf: emptyWolf, normalizeGame: normalizeGame, GAMES: GAMES, firstName: firstName, teamLabel: teamLabel,
+    skins: skins, birdies: birdies, vegas: vegas, vegasNumber: vegasNumber, wolfGame: wolfGame, wolfOf: wolfOf, wolfCount: wolfCount, wolfOrderOf: wolfOrderOf, emptyWolf: emptyWolf, normalizeGame: normalizeGame, GAMES: GAMES, firstName: firstName, teamLabel: teamLabel,
     settleAll: settleAll, undoPush: undoPush, undoPushWolf: undoPushWolf, undoPop: undoPop, diffEvents: diffEvents, holeComplete: holeComplete,
     ROSTER_KEY: ROSTER_KEY, FAVORITES: FAVORITES, normName: normName, cleanName: cleanName, validIndex: validIndex, missingIndexes: missingIndexes, seedRoster: seedRoster, parseRoster: parseRoster,
     loadRoster: loadRoster, saveRoster: saveRoster, sortRoster: sortRoster, rosterFind: rosterFind, roundHasScores: roundHasScores, isSampleRound: isSampleRound, rosterAutoSave: rosterAutoSave,
@@ -1328,7 +1329,7 @@ if (typeof module !== "undefined") module.exports = MP;
     nassau: "Front 9, back 9 and overall bets, with automatic presses.",
     skins: "Everyone plays for themselves. The lowest score alone on a hole wins a skin.",
     vegas: "Two teams of two. Each hole a team's two scores make one number (4 and 5 = 45); the lower number wins the difference in points.",
-    wolf: "The wolf rotates each hole and picks a partner after seeing tee shots, or goes Lone Wolf for bigger stakes."
+    wolf: "The wolf rotates each hole and picks a partner after seeing tee shots, or goes Lone Wolf for bigger stakes. Play it with 3, 4 or 5 players."
   };
   function wolfOrderUi() {
     var ord = MP.wolfOrderOf(S), n = ord.length, o = '<label class="f" style="margin-top:10px">Tee order (the wolf rotates down this list, holes 1 to 18)</label>';
@@ -1360,7 +1361,7 @@ if (typeof module !== "undefined") module.exports = MP;
         '<label class="f" style="margin-top:10px">Scores used</label>' + seg("wolfMode", [["net", "Net (with strokes)"], ["gross", "Gross"]], S.wolfMode) +
         sw("Blind wolf", "wolfBlindOn", S.wolfBlindOn) + (S.wolfBlindOn ? '<div class="grid2">' + txt("Blind wolf ×", "wolfBlind", S.wolfBlind, "", "decimal") + "<div></div></div>" : "") +
         wolfOrderUi() +
-        '<p class="sub small">On the Hole screen the wolf taps a partner (or Lone' + (S.wolfBlindOn ? " / Blind" : "") + ") for each hole. Best ball of the wolf's side against best ball of the others; the lower wins, a tie is a push. With a partner every winner collects 1 point from every loser; a lone wolf collects (or pays) " + esc(S.wolfLone) + "× from each of the others" + (S.wolfBlindOn ? ", a blind wolf " + esc(S.wolfBlind) + "×" : "") + ". A hole isn't counted until the wolf has chosen.</p>";
+        '<p class="sub small">On the Hole screen the wolf taps a partner (or Lone' + (S.wolfBlindOn ? " / Blind" : "") + ") for each hole. Best ball of the wolf's side against best ball of the others; the lower wins, a tie is a push. With a partner every winner collects 1 point from every loser; a lone wolf collects (or pays) " + esc(S.wolfLone) + "× from each of the others" + (S.wolfBlindOn ? ", a blind wolf " + esc(S.wolfBlind) + "×" : "") + ". A hole isn't counted until the wolf has chosen." + (Number(S.wolfN) === 3 ? " <b>3 players:</b> the wolf rotates 1-2-3 and a partner makes it 2 against 1 (the lone player pays or collects 1 point from each of the two); Lone or Blind is 1 against 2. Money always adds up to zero." : "") + "</p>";
     }
     return o;
   }
@@ -1373,7 +1374,7 @@ if (typeof module !== "undefined") module.exports = MP;
       if (S.format === "wheel") h += '<p class="sub">' + esc(sn([0, 1])) + " (the wheel) play three best-ball matches: vs " + MP.WHEEL_PAIRS.map(sn).join(", vs ") + ".</p>";
     } else if (S.game === "skins") h += "<h2>Players</h2>" + seg("skinN", [[2, "2 players"], [3, "3"], [4, "4"], [5, "5"]], S.skinN).replace('class="seg"', 'class="seg" style="margin-bottom:2px"');
     else if (S.game === "vegas") h += '<p class="sub">Four players, two teams: ' + esc(sn([0, 1])) + " vs " + esc(sn([2, 3])) + ".</p>";
-    else h += "<h2>Players</h2>" + seg("wolfN", [[4, "4 players"], [5, "5 players"]], S.wolfN);
+    else h += "<h2>Players</h2>" + seg("wolfN", [[3, "3 players"], [4, "4 players"], [5, "5 players"]], S.wolfN);
     h += '<div class="h2row"><h2>Players</h2><button class="btn dng" data-act="clearplayers" style="width:auto;min-height:38px;padding:0 16px;font-size:15px;margin-bottom:6px">Clear</button></div>' + idxMsg();
     calc.active.forEach(function (p) {
       h += '<div class="card"><div class="sub" style="margin-bottom:6px">' + esc(playerLabel(p)) + "</div>" + pickSel(p, calc.active) + '<div class="grid2">' +
@@ -1436,7 +1437,7 @@ if (typeof module !== "undefined") module.exports = MP;
     else t = '<div class="small" style="margin-top:8px"><b>' + esc(wolfTeamText(r)) + ":</b> " + (r.result === "push" ? "push, no points." : (r.result === "win" ? "wolf's side wins" : "wolf's side loses") + (r.mult > 1 ? " (" + r.mult + "×)" : "") + ".") + "</div>";
     return o + t + "</div>";
   }
-  function wolfTeamText(r) { return r.choice === "partner" ? nm(r.wolf) + " & " + nm(r.partner) + " vs the others" : (r.choice === "blind" ? "Blind wolf " : "Lone wolf ") + nm(r.wolf) + " vs the field"; }
+  function wolfTeamText(r) { return r.choice === "partner" ? nm(r.wolf) + " & " + nm(r.partner) + (r.others.length === 1 ? " vs " + nm(r.others[0]) : " vs the others") : (r.choice === "blind" ? "Blind wolf " : "Lone wolf ") + nm(r.wolf) + " vs the field"; }
   function wolfLine(calc) {
     var wg = MP.wolfGame(S, calc), tally = calc.active.filter(function (p) { return wg.units[p]; }).map(function (p) { return esc(lab(p)) + " " + (wg.units[p] > 0 ? "+" : "−") + Math.abs(wg.units[p]); }).join(", ");
     return '<div class="small"><b>Wolf</b> (' + wg.mode + ", " + MP.money(wg.amount) + " per point): " + (tally ? 'points so far: <span class="sub">' + tally + "</span>" : '<span class="sub">no points yet</span>') + "</div>";
@@ -1734,7 +1735,7 @@ if (typeof module !== "undefined") module.exports = MP;
     if (a === "go") go(v);
     else if (a === "game") { S.game = v; S.allowance = v === "nassau" ? (S.format === "singles" ? "100" : "90") : "100"; S.view = 0; save(); render(); }
     else if (a === "skinN") { S.skinN = Number(v); save(); render(); }
-    else if (a === "wolfN") { S.wolfN = Number(v) === 5 ? 5 : 4; save(); render(); }
+    else if (a === "wolfN") { S.wolfN = MP.wolfCount(v); save(); render(); }
     else if (a === "wolfpick") setWolf(S.hole, v);
     else if (a === "format") { S.format = v; S.allowance = v === "singles" ? "100" : "90"; S.view = 0; save(); render(); }
     else if (a === "view") { S.view = Number(v); save(); render(); }
