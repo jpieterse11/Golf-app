@@ -99,6 +99,7 @@ input.bad{border-color:var(--red);border-width:2px;background:var(--warn)}
 .plus.on{background:var(--green);color:var(--greenfg);border-color:var(--green)}
 #toast{position:fixed;left:10px;right:10px;top:calc(8px + env(safe-area-inset-top));z-index:30;pointer-events:none;display:flex;flex-direction:column;gap:6px;max-width:500px;margin:0 auto}
 .tt{pointer-events:none;background:var(--text);color:var(--bg);border-radius:12px;padding:10px 12px;font-size:15px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.35);border-left:6px solid var(--green);animation:tin .18s ease-out}
+.tt.vegas{border-left-color:#14b8a6}.tt.wolf{border-left-color:#8b5e34}
 .tt.closeout{border-left-color:#d99a00}.tt.press{border-left-color:#e0652d}.tt.skin{border-left-color:#3b82f6}.tt.birdie{border-left-color:#a855f7}
 @keyframes tin{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
 .undo{min-height:44px;font-size:15px;margin-bottom:10px}
@@ -148,6 +149,8 @@ select.bad{border-color:var(--red);border-width:2px;background:var(--warn)}
 .ixbar .btn{width:auto;min-height:44px;padding:0 16px;flex:none}
 .pr .ix{position:relative}
 .pr .ix input[type=text]{padding-right:34px}
+.wp{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}
+.wp .btn{min-height:48px;padding:0 6px;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mini{position:absolute;right:5px;top:8px;width:28px;height:28px;border:1px solid var(--line);background:var(--soft);color:var(--text);border-radius:8px;font-size:11px;font-weight:700;padding:0}
 </style>
 </head>
@@ -179,6 +182,8 @@ var MP = (function () {
   var HOLES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
   var WHEEL_PAIRS = [[2, 3], [2, 4], [3, 4]];
 
+  var GAMES = ["nassau", "skins", "vegas", "wolf"];
+  function emptyWolf() { return HOLES.map(function () { return ""; }); } /* per-hole wolf choice: "" none, "L" lone, "B" blind, "0".."4" partner (player index) */
   function emptyScores() { return [0, 1, 2, 3, 4].map(function () { return HOLES.map(function () { return ""; }); }); }
 
   function defaultState() {
@@ -195,7 +200,10 @@ var MP = (function () {
       allowance: "90",
       front: "10", back: "10", overall: "10",
       autoPress: true,
-      skinsOn: false, skinAmt: "5", skinMode: "net", skinCarry: true, skinLeft: "dies",
+      game: "nassau", /* the ONE main game: nassau | skins | vegas | wolf (birdies is a separate add-on) */
+      skinN: 4, skinAmt: "5", skinMode: "net", skinCarry: true, skinLeft: "dies",
+      vegasAmt: "1", vegasMode: "net", vegasFlip: false,
+      wolfN: 4, wolfAmt: "2", wolfMode: "net", wolfLone: "2", wolfBlindOn: false, wolfBlind: "3", wolfOrder: [0, 1, 2, 3, 4], wolf: emptyWolf(),
       birdOn: false, birdAmt: "5", birdNet: false,
       cardView: "front",
       si: DEFAULT_SI.map(String),
@@ -258,8 +266,29 @@ var MP = (function () {
     return bets;
   }
 
-  function activePlayers(format) {
-    return format === "singles" ? [0, 1] : format === "bestball" ? [0, 1, 2, 3] : [0, 1, 2, 3, 4];
+  /* Accepts a format string (legacy) or the whole state: then the selected game decides who plays. */
+  function activePlayers(x) {
+    if (x && typeof x === "object") {
+      var g = x.game, n;
+      if (g === "skins") { n = Math.max(2, Math.min(5, Math.round(Number(x.skinN)) || 4)); return [0, 1, 2, 3, 4].slice(0, n); }
+      if (g === "vegas") return [0, 1, 2, 3];
+      if (g === "wolf") return Number(x.wolfN) === 5 ? [0, 1, 2, 3, 4] : [0, 1, 2, 3];
+      return activePlayers(x.format);
+    }
+    return x === "singles" ? [0, 1] : x === "bestball" ? [0, 1, 2, 3] : [0, 1, 2, 3, 4];
+  }
+  /* Repairs the game fields of a loaded round (older saves have none: they become Nassau). Returns the same state. */
+  function normalizeGame(state) {
+    var d = defaultState();
+    if (GAMES.indexOf(state.game) < 0) state.game = "nassau";
+    var sn = Math.round(Number(state.skinN)); state.skinN = sn >= 2 && sn <= 5 ? sn : 4;
+    state.wolfN = Number(state.wolfN) === 5 ? 5 : 4;
+    ["skinMode", "vegasMode", "wolfMode"].forEach(function (k) { if (state[k] !== "net" && state[k] !== "gross") state[k] = d[k]; });
+    var o = state.wolfOrder, okOrder = Array.isArray(o) && o.length === 5 && [0, 1, 2, 3, 4].every(function (i) { return o.indexOf(i) >= 0; });
+    if (!okOrder) state.wolfOrder = [0, 1, 2, 3, 4];
+    if (!Array.isArray(state.wolf) || state.wolf.length !== 18) state.wolf = emptyWolf();
+    state.wolf = state.wolf.map(function (x) { x = String(x == null ? "" : x); return x === "" || x === "L" || x === "B" || /^[0-4]$/.test(x) ? x : ""; });
+    return state;
   }
   function nameOf(state, i) { var n = String(state.names[i] || "").trim(); return n ? n : "Player " + (i + 1); }
   function sideName(state, s) { return s.map(function (p) { return nameOf(state, p); }).join(" & "); }
@@ -270,13 +299,14 @@ var MP = (function () {
   }
 
   function matchDefs(state) {
+    if (state.game && state.game !== "nassau") return []; /* Nassau matches only exist when Nassau is the selected game */
     if (state.format === "singles") return [{ sides: [[0], [1]] }];
     if (state.format === "bestball") return [{ sides: [[0, 1], [2, 3]] }];
     return WHEEL_PAIRS.filter(function (_, k) { return state.wheelPairs[k]; }).map(function (pair) { return { sides: [[0, 1], pair] }; });
   }
 
   function compute(state) {
-    var active = activePlayers(state.format);
+    var active = activePlayers(state);
     var cp = coursePar(state);
     var matches = matchDefs(state);
     var slopeN = Number(state.slope) || 113;
@@ -527,23 +557,103 @@ var MP = (function () {
     active.forEach(function (p) { active.forEach(function (q) { if (q !== p) { res.net[p] += res.count[p] * amt; res.net[q] -= res.count[p] * amt; } }); });
     return res;
   }
-  /* Nassau + skins + birdies, kept separate and summed. Side bets only count when switched on. */
+  /* ---- Las Vegas (4 players, slots 1&2 vs 3&4) ---- */
+  function vegasNumber(s1, s2, flip) {
+    var a = Math.min(s1, s2), b = Math.max(s1, s2);
+    /* normal: low digit first (4,5 = 45). A score of 10+ goes first (10,4 = 104). Flipped (opponent birdied): high first (5,4 = 54). */
+    if (flip || b >= 10) return Number(String(b) + String(a));
+    return a * 10 + b;
+  }
+  function vegas(state, calc) {
+    var amt = Number(state.vegasAmt) || 0, mode = state.vegasMode === "gross" ? "gross" : "net", flip = !!state.vegasFlip, teams = [[0, 1], [2, 3]];
+    var res = { amount: amt, mode: mode, flip: flip, teams: teams, holes: [], points: 0, net: zero5() };
+    HOLES.forEach(function (h) {
+      var rec = { h: h, complete: false, scores: [[], []], birdie: [false, false], flipped: [false, false], nums: [0, 0], pts: 0 };
+      if (!holeComplete(state, [0, 1, 2, 3], h)) { res.holes.push(rec); return; }
+      rec.complete = true;
+      var par = Number(state.par[h]) || 0;
+      teams.forEach(function (t, k) {
+        t.forEach(function (p) {
+          var g = Number(state.scores[p][h]);
+          rec.scores[k].push(Math.max(0, mode === "net" ? g - calc.strokes[p][h] : g)); /* a net score below 0 counts as 0 */
+          if (par && g <= par - 1) rec.birdie[k] = true; /* birdie = gross birdie or better */
+        });
+      });
+      rec.flipped = [flip && rec.birdie[1], flip && rec.birdie[0]]; /* a team's number flips when the OTHER team makes a birdie */
+      rec.nums = [vegasNumber(rec.scores[0][0], rec.scores[0][1], rec.flipped[0]), vegasNumber(rec.scores[1][0], rec.scores[1][1], rec.flipped[1])];
+      rec.pts = rec.nums[1] - rec.nums[0]; /* + means team A (slots 1&2) won the hole */
+      res.points += rec.pts;
+      teams[0].forEach(function (p) { res.net[p] += rec.pts * amt; });
+      teams[1].forEach(function (p) { res.net[p] -= rec.pts * amt; });
+      res.holes.push(rec);
+    });
+    res.net = res.net.map(cents);
+    return res;
+  }
+  function cents(x) { return Math.round(x * 100) / 100 + 0; }
+
+  /* ---- Wolf (4 or 5 players). The wolf rotates through the tee order, holes 1-18 (no catch-up rule on 17-18). ---- */
+  function wolfOrderOf(state) {
+    var n = Number(state.wolfN) === 5 ? 5 : 4, o = Array.isArray(state.wolfOrder) ? state.wolfOrder : [0, 1, 2, 3, 4];
+    var out = o.filter(function (x) { return x >= 0 && x < n; });
+    return out.length === n ? out : [0, 1, 2, 3, 4].slice(0, n);
+  }
+  function wolfOf(state, h) { var o = wolfOrderOf(state); return o[h % o.length]; }
+  function wolfGame(state, calc) {
+    var active = calc.active, n = active.length, amt = Number(state.wolfAmt) || 0, mode = state.wolfMode === "gross" ? "gross" : "net";
+    var loneM = Number(state.wolfLone) > 0 ? Number(state.wolfLone) : 2, blindM = Number(state.wolfBlind) > 0 ? Number(state.wolfBlind) : 3, blindOn = !!state.wolfBlindOn;
+    var res = { amount: amt, mode: mode, loneMult: loneM, blindMult: blindM, blindOn: blindOn, holes: [], units: zero5(), net: zero5(), needChoice: [] };
+    HOLES.forEach(function (h) {
+      var w = wolfOf(state, h), raw = String(state.wolf[h] == null ? "" : state.wolf[h]);
+      var rec = { h: h, wolf: w, choice: null, partner: null, mult: 0, complete: holeComplete(state, active, h), needsChoice: false, result: null, team: [], others: [], units: zero5() };
+      if (raw === "L") { rec.choice = "lone"; rec.mult = loneM; rec.team = [w]; }
+      else if (raw === "B" && blindOn) { rec.choice = "blind"; rec.mult = blindM; rec.team = [w]; }
+      else if (/^[0-4]$/.test(raw) && Number(raw) !== w && active.indexOf(Number(raw)) >= 0) { rec.choice = "partner"; rec.partner = Number(raw); rec.mult = 1; rec.team = [w, rec.partner]; }
+      if (rec.choice) rec.others = active.filter(function (p) { return rec.team.indexOf(p) < 0; });
+      if (rec.complete && !rec.choice) { rec.needsChoice = true; res.needChoice.push(h); }
+      if (rec.complete && rec.choice) {
+        var val = function (p) { var g = Number(state.scores[p][h]); return mode === "net" ? g - calc.strokes[p][h] : g; };
+        var a = Math.min.apply(null, rec.team.map(val)), b = Math.min.apply(null, rec.others.map(val));
+        rec.result = a < b ? "win" : a > b ? "loss" : "push";
+        if (rec.result !== "push") {
+          var W = rec.result === "win" ? rec.team : rec.others, L = rec.result === "win" ? rec.others : rec.team;
+          /* every winner collects mult units from every loser */
+          W.forEach(function (p) { rec.units[p] += rec.mult * L.length; });
+          L.forEach(function (p) { rec.units[p] -= rec.mult * W.length; });
+        }
+        active.forEach(function (p) { res.units[p] += rec.units[p]; res.net[p] += rec.units[p] * amt; });
+      }
+      res.holes.push(rec);
+    });
+    res.net = res.net.map(cents);
+    return res;
+  }
+
+  /* The selected main game plus the Birdies add-on, summed. Only the chosen game is calculated; the others come back null / zero. */
   function settleAll(state, calc) {
-    var nas = settle(state, calc), sk = skins(state, calc), bd = birdies(state, calc);
-    var skN = state.skinsOn ? sk.net : zero5(), bdN = state.birdOn ? bd.net : zero5();
-    return { nassau: nas, skins: sk, birdies: bd, skinNet: skN, birdNet: bdN, nassauNet: nas.net, pending: nas.pending,
-      total: [0, 1, 2, 3, 4].map(function (p) { return nas.net[p] + skN[p] + bdN[p]; }) };
+    var g = GAMES.indexOf(state.game) >= 0 ? state.game : "nassau";
+    var nas = g === "nassau" ? settle(state, calc) : null, sk = g === "skins" ? skins(state, calc) : null, vg = g === "vegas" ? vegas(state, calc) : null, wf = g === "wolf" ? wolfGame(state, calc) : null;
+    var bd = birdies(state, calc), z = zero5();
+    var main = g === "nassau" ? nas.net : g === "skins" ? sk.net : g === "vegas" ? vg.net : wf.net;
+    var bdN = state.birdOn ? bd.net : z;
+    return { game: g, nassau: nas, skins: sk, vegas: vg, wolf: wf, birdies: bd, mainNet: main, birdNet: bdN,
+      nassauNet: g === "nassau" ? main : z, skinNet: g === "skins" ? main : z, vegasNet: g === "vegas" ? main : z, wolfNet: g === "wolf" ? main : z,
+      pending: nas ? nas.pending : z,
+      total: [0, 1, 2, 3, 4].map(function (p) { return cents(main[p] + bdN[p]); }) };
   }
 
   /* ---- Undo (single-cell entries, multi-level) ---- */
   function undoPush(stack, state, p, h) { stack.push({ p: p, h: h, prev: state.scores[p][h] }); if (stack.length > 100) stack.shift(); return stack; }
-  function undoPop(stack, state) { var e = stack.pop(); if (!e) return null; state.scores[e.p][e.h] = e.prev; return e; }
+  function undoPushWolf(stack, state, h) { stack.push({ k: "wolf", h: h, prev: state.wolf[h] }); if (stack.length > 100) stack.shift(); return stack; }
+  function undoPop(stack, state) { var e = stack.pop(); if (!e) return null; if (e.k === "wolf") state.wolf[e.h] = e.prev; else state.scores[e.p][e.h] = e.prev; return e; }
 
   /* ---- Alert events: what changed between two states (call with a clone from before the entry) ---- */
   function betTitle(b) {
     var l = b.label.replace(/ \(from hole \d+\)/, "");
     return l === "Front" ? "Front 9" : l === "Back" ? "Back 9" : l === "Overall" ? "Overall match" : l.replace(/^Front/, "Front 9").replace(/^Back/, "Back 9");
   }
+  function firstName(state, p) { var n = String(state.names[p] || "").trim().split(/\s+/)[0]; return n ? n.slice(0, 10) : "P" + (p + 1); }
+  function teamLabel(state, side) { return side.map(function (p) { return firstName(state, p); }).join(" & "); }
   function diffEvents(prevS, nextS) {
     var ca = compute(prevS), cb = compute(nextS), ev = [];
     cb.results.forEach(function (rb, k) {
@@ -570,7 +680,7 @@ var MP = (function () {
         if (/press/.test(x.label) && !nextBy[x.label]) ev.push({ type: "press-removed", match: k, text: "Press from #" + (x.start + 1) + " no longer applies after the edit" + (both ? " (" + both + ")" : "") });
       });
     });
-    if (nextS.skinsOn) {
+    if (nextS.game === "skins") {
       var sa = skins(prevS, ca), sb = skins(nextS, cb);
       sb.holes.forEach(function (rb, h) {
         var ra = sa.holes[h]; if (!rb.complete) return;
@@ -578,6 +688,26 @@ var MP = (function () {
           if (ra.winner !== rb.winner || ra.skins !== rb.skins) ev.push({ type: "skin", hole: h, text: "Skin to " + nameOf(nextS, rb.winner) + ", worth " + rb.skins });
         } else if (rb.carried) {
           if (!(ra.complete && ra.tied && ra.carried && ra.skins === rb.skins)) ev.push({ type: "skin", hole: h, text: "#" + (h + 1) + " tied: skin carries, next hole worth " + (rb.skins + 1) });
+        }
+      });
+    }
+    if (nextS.game === "vegas") {
+      var va = vegas(prevS, ca), vb = vegas(nextS, cb), tA = teamLabel(nextS, [0, 1]), tB = teamLabel(nextS, [2, 3]);
+      vb.holes.forEach(function (r, h) {
+        if (!r.complete) return;
+        var q = va.holes[h]; if (q.complete && q.pts === r.pts && q.nums.join() === r.nums.join()) return;
+        ev.push({ type: "vegas", hole: h, text: "Vegas #" + (h + 1) + ": " + tA + " " + r.nums[0] + (r.flipped[0] ? "↺" : "") + " vs " + tB + " " + r.nums[1] + (r.flipped[1] ? "↺" : "") + " → " + (r.pts === 0 ? "push" : (r.pts > 0 ? tA : tB) + " +" + Math.abs(r.pts)) });
+      });
+    }
+    if (nextS.game === "wolf") {
+      var wa = wolfGame(prevS, ca), wb = wolfGame(nextS, cb), key = function (r) { return [r.result, r.choice, r.partner, r.needsChoice].join("|"); };
+      wb.holes.forEach(function (r, h) {
+        var q = wa.holes[h]; if (key(q) === key(r)) return;
+        var wn = firstName(nextS, r.wolf);
+        if (r.needsChoice) ev.push({ type: "wolf", hole: h, text: "Wolf #" + (h + 1) + ": scores are in, but " + wn + " (wolf) hasn't picked a partner yet. Hole not counted." });
+        else if (r.result) {
+          var who = r.choice === "partner" ? wn + " & " + firstName(nextS, r.partner) : (r.choice === "blind" ? "Blind wolf " : "Lone wolf ") + wn, x = r.mult > 1 ? " (" + r.mult + "×)" : "";
+          ev.push({ type: "wolf", hole: h, text: "Wolf #" + (h + 1) + ": " + (r.result === "push" ? who + " push, no points" : who + (r.choice === "partner" ? (r.result === "win" ? " win" : " lose") : (r.result === "win" ? " wins" : " loses")) + x) });
         }
       });
     }
@@ -604,7 +734,7 @@ var MP = (function () {
   /* Active players (for this format) whose index is blank/invalid. Only matters when handicap strokes are on. '+1.2' is valid. */
   function missingIndexes(state) {
     if (!state.useHcp) return [];
-    return activePlayers(state.format).filter(function (p) { return !validIndex(state.indexes[p]); });
+    return activePlayers(state).filter(function (p) { return !validIndex(state.indexes[p]); });
   }
   function parseRoster(raw) {
     if (!raw) return null;
@@ -642,7 +772,7 @@ var MP = (function () {
     return null;
   }
   function roundHasScores(state) {
-    return activePlayers(state.format).some(function (p) {
+    return activePlayers(state).some(function (p) {
       return state.scores[p].some(function (s) { return String(s).trim() !== "" && !isNaN(Number(s)); });
     });
   }
@@ -878,12 +1008,12 @@ var MP = (function () {
      Bet amounts, course, tee and settings stay; the saved roster/favorites and Players-tab overrides are separate stores and untouched.
      Returns true if there was anything to lose (a name, an index or a score). */
   function roundHasContent(state) {
-    return roundHasScores(state) || state.names.some(function (n) { return String(n).trim() !== ""; }) || state.indexes.some(function (x) { return String(x).trim() !== ""; });
+    return roundHasScores(state) || (state.wolf || []).some(function (x) { return String(x) !== ""; }) || state.names.some(function (n) { return String(n).trim() !== ""; }) || state.indexes.some(function (x) { return String(x).trim() !== ""; });
   }
   function clearPlayers(state) {
     var had = roundHasContent(state);
     state.names = ["", "", "", "", ""]; state.indexes = ["", "", "", "", ""]; state.idxSrc = [null, null, null, null, null]; state.idxOver = [null, null, null, null, null];
-    state.scores = emptyScores(); state.hole = 0; state.view = 0; state.cardView = "front";
+    state.scores = emptyScores(); state.wolf = emptyWolf(); state.hole = 0; state.view = 0; state.cardView = "front";
     return had;
   }
 
@@ -892,7 +1022,7 @@ var MP = (function () {
     var res = { roster: roster.map(function (x) { return { name: x.name, fav: x.fav }; }), changed: false, added: [] };
     if (!roundHasScores(state) || isSampleRound(state)) return res;
     var done = {};
-    activePlayers(state.format).forEach(function (p) {
+    activePlayers(state).forEach(function (p) {
       var nm = cleanName(state.names[p]), k = normName(nm); if (!k || done[k]) return; done[k] = 1;
       if (!rosterFind(res.roster, nm)) { res.roster.push({ name: nm, fav: false }); res.added.push(nm); res.changed = true; }
     });
@@ -903,7 +1033,8 @@ var MP = (function () {
     COURSE_FORMAT: COURSE_FORMAT, COURSES_KEY: COURSES_KEY, ANNANDALE: ANNANDALE, checkCourse: checkCourse, exportCourse: exportCourse, importCourse: importCourse, snapshotOf: snapshotOf,
     newCourseId: newCourseId, loadCourses: loadCourses, saveCourses: saveCourses, allCourses: allCourses, sortCourses: sortCourses, findCourse: findCourse, uniqueCourseName: uniqueCourseName,
     applyTee: applyTee, applyCourse: applyCourse, courseChanged: courseChanged,
-    skins: skins, birdies: birdies, settleAll: settleAll, undoPush: undoPush, undoPop: undoPop, diffEvents: diffEvents, holeComplete: holeComplete,
+    skins: skins, birdies: birdies, vegas: vegas, vegasNumber: vegasNumber, wolfGame: wolfGame, wolfOf: wolfOf, wolfOrderOf: wolfOrderOf, emptyWolf: emptyWolf, normalizeGame: normalizeGame, GAMES: GAMES, firstName: firstName, teamLabel: teamLabel,
+    settleAll: settleAll, undoPush: undoPush, undoPushWolf: undoPushWolf, undoPop: undoPop, diffEvents: diffEvents, holeComplete: holeComplete,
     ROSTER_KEY: ROSTER_KEY, FAVORITES: FAVORITES, normName: normName, cleanName: cleanName, validIndex: validIndex, missingIndexes: missingIndexes, seedRoster: seedRoster, parseRoster: parseRoster,
     loadRoster: loadRoster, saveRoster: saveRoster, sortRoster: sortRoster, rosterFind: rosterFind, roundHasScores: roundHasScores, isSampleRound: isSampleRound, rosterAutoSave: rosterAutoSave,
     DEFAULT_SI: DEFAULT_SI, DEFAULT_PAR: DEFAULT_PAR, TEES: TEES, HOLES: HOLES, WHEEL_PAIRS: WHEEL_PAIRS, SAMPLE: SAMPLE,
@@ -959,7 +1090,7 @@ if (typeof module !== "undefined") module.exports = MP;
         else { d.par = d.course.par.map(String); d.si = d.course.si.map(String); }
       }
       if (d.screen === "courses" || d.screen === "courseedit") d.screen = "setup";
-      S = d;
+      S = MP.normalizeGame(d); /* rounds saved before the Game choice have no "game": they load as Nassau */
     } catch (e) {}
   }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
@@ -984,7 +1115,7 @@ if (typeof module !== "undefined") module.exports = MP;
 
   function lab(p) {
     var full = String(S.names[p] || "").trim() || "P" + (p + 1), parts = full.split(/\s+/), first = parts[0].slice(0, 8);
-    var clash = MP.activePlayers(S.format).some(function (q) { return q !== p && (String(S.names[q] || "").trim().split(/\s+/)[0] || "").slice(0, 8).toLowerCase() === first.toLowerCase(); });
+    var clash = MP.activePlayers(S).some(function (q) { return q !== p && (String(S.names[q] || "").trim().split(/\s+/)[0] || "").slice(0, 8).toLowerCase() === first.toLowerCase(); });
     return clash && parts.length > 1 ? first + " " + parts[parts.length - 1].charAt(0).toUpperCase() + "." : first;
   }
   function ini(p) {
@@ -1008,6 +1139,8 @@ if (typeof module !== "undefined") module.exports = MP;
       }).join("") + "</table>";
   }
   function playerLabel(p) {
+    if (S.game === "vegas") return "Team " + (p < 2 ? "A" : "B") + ", player " + ((p % 2) + 1);
+    if (S.game !== "nassau") return "Player " + (p + 1);
     if (S.format === "singles") return "Player " + (p + 1);
     if (S.format === "bestball") return "Team " + (p < 2 ? "A" : "B") + ", player " + ((p % 2) + 1);
     return p < 2 ? "Wheel player " + (p + 1) : "Player " + (p + 1);
@@ -1191,11 +1324,56 @@ if (typeof module !== "undefined") module.exports = MP;
     h += '<h2>Add a player</h2><div class="card">' + txt("Name", "newname", "", "Full name") + '<div style="height:10px"></div><button class="btn pri" data-act="addp">Add player</button></div>';
     return h;
   }
+  var GAME_BLURB = {
+    nassau: "Front 9, back 9 and overall bets, with automatic presses.",
+    skins: "Everyone plays for themselves. The lowest score alone on a hole wins a skin.",
+    vegas: "Two teams of two. Each hole a team's two scores make one number (4 and 5 = 45); the lower number wins the difference in points.",
+    wolf: "The wolf rotates each hole and picks a partner after seeing tee shots, or goes Lone Wolf for bigger stakes."
+  };
+  function wolfOrderUi() {
+    var ord = MP.wolfOrderOf(S), n = ord.length, o = '<label class="f" style="margin-top:10px">Tee order (the wolf rotates down this list, holes 1 to 18)</label>';
+    ord.forEach(function (pl, i) {
+      var holes = []; for (var hh = i; hh < 18; hh += n) holes.push(hh + 1);
+      o += '<div class="row" style="margin-bottom:6px"><div class="sub small" style="width:96px;flex:none">Wolf ' + (i + 1) + "<br>#" + holes.join(", ") + '</div><select data-k="wolforder" data-i="' + i + '" aria-label="Wolf in position ' + (i + 1) + '">' +
+        ord.map(function (q) { return '<option value="' + q + '"' + (q === pl ? " selected" : "") + ">" + esc(nm(q)) + "</option>"; }).join("") + "</select></div>";
+    });
+    return o;
+  }
+  function gameOptions() {
+    var o = "";
+    if (S.game === "nassau") {
+      o += '<div class="grid3">' + txt("Front 9 $", "front", S.front, "", "decimal") + txt("Back 9 $", "back", S.back, "", "decimal") + txt("Overall $", "overall", S.overall, "", "decimal") + "</div>" +
+        sw("Automatic press when 2 down", "autoPress", S.autoPress) + '<p class="sub small">A press starts on the next hole and lasts to the end of that nine. Overall has no presses.</p>';
+    } else if (S.game === "skins") {
+      o += '<div class="grid2">' + txt("$ per skin", "skinAmt", S.skinAmt, "", "decimal") + "<div></div></div>" +
+        '<label class="f" style="margin-top:10px">Skins are won on</label>' + seg("skinMode", [["net", "Net (with strokes)"], ["gross", "Gross"]], S.skinMode) + sw("Ties carry over", "skinCarry", S.skinCarry);
+      if (S.skinCarry) o += '<label class="f">Carryover left after 18</label>' + seg("skinLeft", [["dies", "Dies (no payout)"], ["split", "Split by tied low"]], S.skinLeft);
+      o += '<p class="sub small">Lowest score alone on a hole wins a skin. Every other player pays the winner the skin value. Net uses the same strokes everyone plays off the low man. "Split" shares a tie-on-18 carryover among the players tied for low on 18.</p>';
+    } else if (S.game === "vegas") {
+      o += '<div class="grid2">' + txt("$ per point", "vegasAmt", S.vegasAmt, "", "decimal") + "<div></div></div>" +
+        '<label class="f" style="margin-top:10px">Scores used</label>' + seg("vegasMode", [["net", "Net (with strokes)"], ["gross", "Gross"]], S.vegasMode) +
+        sw("Birdie flips opponents' number", "vegasFlip", S.vegasFlip) +
+        '<p class="sub small">Each team\'s two scores make a number, low score first (4 and 5 = 45). A 10 or more goes first (10 and 4 = 104). The lower number wins the difference in points, and each player on the winning team wins that many $ from a player on the losing team. ' +
+        (S.vegasFlip ? "When a team makes a birdie (gross), the other team\'s number is flipped, high score first (4 and 5 becomes 54)." : "") + "</p>";
+    } else {
+      o += '<div class="grid2">' + txt("$ per point", "wolfAmt", S.wolfAmt, "", "decimal") + txt("Lone wolf ×", "wolfLone", S.wolfLone, "", "decimal") + "</div>" +
+        '<label class="f" style="margin-top:10px">Scores used</label>' + seg("wolfMode", [["net", "Net (with strokes)"], ["gross", "Gross"]], S.wolfMode) +
+        sw("Blind wolf", "wolfBlindOn", S.wolfBlindOn) + (S.wolfBlindOn ? '<div class="grid2">' + txt("Blind wolf ×", "wolfBlind", S.wolfBlind, "", "decimal") + "<div></div></div>" : "") +
+        wolfOrderUi() +
+        '<p class="sub small">On the Hole screen the wolf taps a partner (or Lone' + (S.wolfBlindOn ? " / Blind" : "") + ") for each hole. Best ball of the wolf's side against best ball of the others; the lower wins, a tie is a push. With a partner every winner collects 1 point from every loser; a lone wolf collects (or pays) " + esc(S.wolfLone) + "× from each of the others" + (S.wolfBlindOn ? ", a blind wolf " + esc(S.wolfBlind) + "×" : "") + ". A hole isn't counted until the wolf has chosen.</p>";
+    }
+    return o;
+  }
   function viewSetup() {
     var calc = MP.compute(S);
     var h = "<h1>⛳ Match Play · Setup</h1>";
-    h += '<h2>Format</h2>' + seg("format", [["singles", "One on one"], ["bestball", "2 vs 2"], ["wheel", "5-player wheel"]], S.format);
-    if (S.format === "wheel") h += '<p class="sub">' + esc(sn([0, 1])) + " (the wheel) play three best-ball matches: vs " + MP.WHEEL_PAIRS.map(sn).join(", vs ") + ".</p>";
+    h += "<h2>Game</h2>" + seg("game", [["nassau", "Nassau"], ["skins", "Skins"], ["vegas", "Las Vegas"], ["wolf", "Wolf"]], S.game) + '<p class="sub small" style="margin:6px 2px 0">' + GAME_BLURB[S.game] + "</p>";
+    if (S.game === "nassau") {
+      h += '<h2>Format</h2>' + seg("format", [["singles", "One on one"], ["bestball", "2 vs 2"], ["wheel", "5-player wheel"]], S.format);
+      if (S.format === "wheel") h += '<p class="sub">' + esc(sn([0, 1])) + " (the wheel) play three best-ball matches: vs " + MP.WHEEL_PAIRS.map(sn).join(", vs ") + ".</p>";
+    } else if (S.game === "skins") h += "<h2>Players</h2>" + seg("skinN", [[2, "2 players"], [3, "3"], [4, "4"], [5, "5"]], S.skinN).replace('class="seg"', 'class="seg" style="margin-bottom:2px"');
+    else if (S.game === "vegas") h += '<p class="sub">Four players, two teams: ' + esc(sn([0, 1])) + " vs " + esc(sn([2, 3])) + ".</p>";
+    else h += "<h2>Players</h2>" + seg("wolfN", [[4, "4 players"], [5, "5 players"]], S.wolfN);
     h += '<div class="h2row"><h2>Players</h2><button class="btn dng" data-act="clearplayers" style="width:auto;min-height:38px;padding:0 16px;font-size:15px;margin-bottom:6px">Clear</button></div>' + idxMsg();
     calc.active.forEach(function (p) {
       h += '<div class="card"><div class="sub" style="margin-bottom:6px">' + esc(playerLabel(p)) + "</div>" + pickSel(p, calc.active) + '<div class="grid2">' +
@@ -1212,45 +1390,66 @@ if (typeof module !== "undefined") module.exports = MP;
       '<div class="grid3" style="margin-top:10px">' + txt("Slope", "slope", S.slope, "", "decimal") + txt("Rating", "rating", S.rating, "", "decimal") + txt("Allowance %", "allowance", S.allowance, "", "decimal") + "</div>" +
       sw("Give handicap strokes", "useHcp", S.useHcp) + '<div id="hcp">' + hcpTable(calc) + "</div>" +
       '<p class="sub small">Course hcp = index × slope ÷ 113 + (rating − par). Playing hcp = course × allowance. Strokes are taken off the lowest playing handicap, on the hardest holes first.</p></div>';
-    h += "<h2>Bets (per player)</h2><div class=\"card\"><div class=\"grid3\">" + txt("Front 9 $", "front", S.front, "", "decimal") + txt("Back 9 $", "back", S.back, "", "decimal") + txt("Overall $", "overall", S.overall, "", "decimal") + "</div>" +
-      sw("Automatic press when 2 down", "autoPress", S.autoPress) + '<p class="sub small">A press starts on the next hole and lasts to the end of that nine. Overall has no presses.</p></div>';
-    h += "<h2>Side bets (optional)</h2><div class=\"card\">" + sw("Skins", "skinsOn", S.skinsOn);
-    if (S.skinsOn) {
-      h += '<div class="grid2">' + txt("$ per skin", "skinAmt", S.skinAmt, "", "decimal") + "<div></div></div>" +
-        '<label class="f" style="margin-top:10px">Skins are won on</label>' + seg("skinMode", [["net", "Net (with strokes)"], ["gross", "Gross"]], S.skinMode) +
-        sw("Ties carry over", "skinCarry", S.skinCarry);
-      if (S.skinCarry) h += '<label class="f">Carryover left after 18</label>' + seg("skinLeft", [["dies", "Dies (no payout)"], ["split", "Split by tied low"]], S.skinLeft);
-      h += '<p class="sub small">Lowest score alone on a hole wins a skin. Every other player pays the winner the skin value. Net uses the same strokes everyone plays off the low man. "Split" shares a tie-on-18 carryover among the players tied for low on 18.</p>';
-    }
-    h += '<div style="height:6px;border-bottom:1px solid var(--line);margin-bottom:6px"></div>' + sw("Birdies", "birdOn", S.birdOn);
+    h += "<h2>" + { nassau: "Bets · Nassau (per player)", skins: "Bets · Skins", vegas: "Bets · Las Vegas", wolf: "Bets · Wolf" }[S.game] + '</h2><div class="card">' + gameOptions() + "</div>";
+    h += "<h2>Add-on bet (optional)</h2><div class=\"card\">" + sw("Birdies (on top of " + { nassau: "Nassau", skins: "Skins", vegas: "Las Vegas", wolf: "Wolf" }[S.game] + ")", "birdOn", S.birdOn);
     if (S.birdOn) h += '<div class="grid2">' + txt("$ per birdie", "birdAmt", S.birdAmt, "", "decimal") + "<div></div></div>" + sw("Count net birdies instead of gross", "birdNet", S.birdNet) +
       '<p class="sub small">Birdie or better pays the maker from every other player. An eagle counts double. Off by default: net birdies.</p>';
     h += "</div>";
     h += '<p class="sub small" style="text-align:center">Par and hole handicaps come from the course. Edit them under Manage courses.</p>';
     h += idxMsg().replace('id="idxmsg"', 'id="idxmsg2"') + '<button class="btn pri" data-act="go" data-v="hole">Start scoring ›</button><div style="height:10px"></div>' +
       '<button class="btn dng" data-act="newround">New round (clear scores)</button><div style="height:10px"></div>' +
-      '<button class="btn" data-act="sample">Load sample wheel round</button>' +
+      '<button class="btn" data-act="sample">Load sample wheel round (Nassau)</button>' +
       '<p class="sub small" style="text-align:center">Round scores save automatically on this device. Each index here follows the Players tab (and stays in sync); type over it to use a different index for this round only.</p>';
     return h;
   }
 
-  function sideCard(calc, h) {
-    var o = '<div class="card"><b>Side bets · hole ' + (h + 1) + "</b>";
-    if (S.skinsOn) {
-      var sk = MP.skins(S, calc), rec = sk.holes[h], t;
-      if (!rec.complete) t = "Skin on this hole is worth " + rec.atStake + " (" + MP.money(sk.amount * rec.atStake) + " from each player). Waiting on scores.";
-      else if (rec.winner !== null) t = "Skin to " + esc(nm(rec.winner)) + (rec.skins > 1 ? ", worth " + rec.skins : "") + ".";
-      else if (rec.carried) t = "Tied: skin carries. Next hole is worth " + (rec.skins + 1) + ".";
-      else t = "Tied: no skin (carryover is off).";
-      var tally = calc.active.filter(function (p) { return sk.won[p]; }).map(function (p) { return esc(lab(p)) + " " + sk.won[p]; }).join(", ");
-      o += '<div class="small" style="margin-top:4px"><b>Skins</b> (' + (sk.mode === "net" ? "net" : "gross") + "): " + t + (tally ? ' <span class="sub">So far: ' + tally + ".</span>" : "") + "</div>";
+  function skinsLine(calc, h) {
+    var sk = MP.skins(S, calc), rec = sk.holes[h], t;
+    if (!rec.complete) t = "Skin on this hole is worth " + rec.atStake + " (" + MP.money(sk.amount * rec.atStake) + " from each player). Waiting on scores.";
+    else if (rec.winner !== null) t = "Skin to " + esc(nm(rec.winner)) + (rec.skins > 1 ? ", worth " + rec.skins : "") + ".";
+    else if (rec.carried) t = "Tied: skin carries. Next hole is worth " + (rec.skins + 1) + ".";
+    else t = "Tied: no skin (carryover is off).";
+    var tally = calc.active.filter(function (p) { return sk.won[p]; }).map(function (p) { return esc(lab(p)) + " " + sk.won[p]; }).join(", ");
+    return '<div class="small" style="margin-top:4px"><b>Skins</b> (' + (sk.mode === "net" ? "net" : "gross") + "): " + t + (tally ? ' <span class="sub">So far: ' + tally + ".</span>" : "") + "</div>";
+  }
+  function vegasLine(calc, h) {
+    var vg = MP.vegas(S, calc), r = vg.holes[h], tA = MP.teamLabel(S, [0, 1]), tB = MP.teamLabel(S, [2, 3]), t;
+    if (!r.complete) t = "Waiting on all four scores.";
+    else {
+      var nA = "<b>" + r.nums[0] + "</b>" + (r.flipped[0] ? " ↺" : ""), nB = "<b>" + r.nums[1] + "</b>" + (r.flipped[1] ? " ↺" : "");
+      t = esc(tA) + " " + nA + " vs " + esc(tB) + " " + nB + ": " + (r.pts === 0 ? "push." : "<b>" + esc(r.pts > 0 ? tA : tB) + " +" + Math.abs(r.pts) + "</b> (" + MP.money(Math.abs(r.pts) * vg.amount) + " per player).") +
+        (r.flipped[0] || r.flipped[1] ? ' <span class="sub">↺ = flipped by a birdie.</span>' : "");
     }
-    if (S.birdOn) {
-      var bd = MP.birdies(S, calc), here = bd.byHole[h].map(function (x) { return esc(lab(x.p)) + (x.n === 2 ? " (eagle)" : ""); }).join(", ");
-      var bt = calc.active.filter(function (p) { return bd.count[p]; }).map(function (p) { return esc(lab(p)) + " " + bd.count[p]; }).join(", ");
-      o += '<div class="small" style="margin-top:4px"><b>Birdies</b>' + (S.birdNet ? " (net)" : "") + ": " + (here || "none on this hole") + (bt ? ' <span class="sub">So far: ' + bt + ".</span>" : "") + "</div>";
-    }
+    var tot = vg.points === 0 ? "all square" : esc(vg.points > 0 ? tA : tB) + " +" + Math.abs(vg.points);
+    return '<div class="small" style="margin-top:4px"><b>Las Vegas</b> (' + vg.mode + "): " + t + ' <span class="sub">Total points: ' + tot + ".</span></div>";
+  }
+  function wolfPick(calc, h) {
+    var wg = MP.wolfGame(S, calc), r = wg.holes[h], w = r.wolf, ch = String(S.wolf[h] || "");
+    var o = '<div class="card"><b>Wolf · hole ' + (h + 1) + '</b><div style="margin-top:2px"><span class="badge" style="margin-left:0">🐺 ' + esc(nm(w)) + " is the wolf</span></div>";
+    o += '<div class="wp">' + calc.active.filter(function (p) { return p !== w; }).map(function (p) { return '<button class="btn' + (ch === String(p) ? " pri" : "") + '" data-act="wolfpick" data-v="' + p + '" title="Partner">' + esc(lab(p)) + "</button>"; }).join("") +
+      '<button class="btn' + (ch === "L" ? " pri" : "") + '" data-act="wolfpick" data-v="L">Lone ' + wg.loneMult + "×</button>" +
+      (wg.blindOn ? '<button class="btn' + (ch === "B" ? " pri" : "") + '" data-act="wolfpick" data-v="B">Blind ' + wg.blindMult + "×</button>" : "") + "</div>";
+    var t;
+    if (r.needsChoice) t = '<div class="msg bad" style="margin:8px 0 0"><b>Pick ' + esc(lab(w)) + "'s partner (or Lone Wolf).</b> The scores are in, but the hole isn't counted until the wolf has chosen.</div>";
+    else if (!r.choice) t = '<div class="sub small" style="margin-top:8px">Tap a partner, or Lone Wolf, for this hole. Tap again to undo your pick.</div>';
+    else if (!r.result) t = '<div class="sub small" style="margin-top:8px">' + esc(wolfTeamText(r)) + ". Waiting on scores.</div>";
+    else t = '<div class="small" style="margin-top:8px"><b>' + esc(wolfTeamText(r)) + ":</b> " + (r.result === "push" ? "push, no points." : (r.result === "win" ? "wolf's side wins" : "wolf's side loses") + (r.mult > 1 ? " (" + r.mult + "×)" : "") + ".") + "</div>";
+    return o + t + "</div>";
+  }
+  function wolfTeamText(r) { return r.choice === "partner" ? nm(r.wolf) + " & " + nm(r.partner) + " vs the others" : (r.choice === "blind" ? "Blind wolf " : "Lone wolf ") + nm(r.wolf) + " vs the field"; }
+  function wolfLine(calc) {
+    var wg = MP.wolfGame(S, calc), tally = calc.active.filter(function (p) { return wg.units[p]; }).map(function (p) { return esc(lab(p)) + " " + (wg.units[p] > 0 ? "+" : "−") + Math.abs(wg.units[p]); }).join(", ");
+    return '<div class="small"><b>Wolf</b> (' + wg.mode + ", " + MP.money(wg.amount) + " per point): " + (tally ? 'points so far: <span class="sub">' + tally + "</span>" : '<span class="sub">no points yet</span>') + "</div>";
+  }
+  function gameCard(calc, h) {
+    var o = '<div class="card"><b>' + { skins: "Skins", vegas: "Las Vegas", wolf: "Wolf" }[S.game] + " · hole " + (h + 1) + "</b>";
+    o += S.game === "skins" ? skinsLine(calc, h) : S.game === "vegas" ? vegasLine(calc, h) : '<div style="margin-top:4px">' + wolfLine(calc) + "</div>";
     return o + "</div>";
+  }
+  function birdCard(calc, h) {
+    var bd = MP.birdies(S, calc), here = bd.byHole[h].map(function (x) { return esc(lab(x.p)) + (x.n === 2 ? " (eagle)" : ""); }).join(", ");
+    var bt = calc.active.filter(function (p) { return bd.count[p]; }).map(function (p) { return esc(lab(p)) + " " + bd.count[p]; }).join(", ");
+    return '<div class="card"><b>Birdies add-on · hole ' + (h + 1) + '</b><div class="small" style="margin-top:4px">' + (S.birdNet ? "(net) " : "") + (here || "none on this hole") + (bt ? ' <span class="sub">So far: ' + bt + ".</span>" : "") + "</div></div>";
   }
   /* ---------- hole screen ---------- */
   function filled(p, h) { var s = S.scores[p][h]; return String(s).trim() !== "" && !isNaN(Number(s)); }
@@ -1262,7 +1461,9 @@ if (typeof module !== "undefined") module.exports = MP;
       return '<button data-act="hole" data-v="' + i + '" class="' + (i === h ? "cur" : done ? "done" : "") + '">' + (i + 1) + "</button>";
     }).join("") + "</div>";
     var lastU = undo.length ? undo[undo.length - 1] : null;
-    o += '<button class="btn undo" data-act="undo"' + (lastU ? "" : " disabled") + ">↶ Undo" + (lastU ? ": " + esc(lab(lastU.p)) + " #" + (lastU.h + 1) + " " + (String(S.scores[lastU.p][lastU.h]).trim() === "" ? "–" : esc(S.scores[lastU.p][lastU.h])) + " → " + (String(lastU.prev).trim() === "" ? "–" : esc(lastU.prev)) : " last score") + '</button>';
+    if (lastU && lastU.k === "wolf") o += '<button class="btn undo" data-act="undo">↶ Undo: wolf pick #' + (lastU.h + 1) + "</button>";
+    else o += '<button class="btn undo" data-act="undo"' + (lastU ? "" : " disabled") + ">↶ Undo" + (lastU ? ": " + esc(lab(lastU.p)) + " #" + (lastU.h + 1) + " " + (String(S.scores[lastU.p][lastU.h]).trim() === "" ? "–" : esc(S.scores[lastU.p][lastU.h])) + " → " + (String(lastU.prev).trim() === "" ? "–" : esc(lastU.prev)) : " last score") + '</button>';
+    if (S.game === "wolf") o += wolfPick(calc, h);
     o += '<div class="card">' + calc.active.map(function (p) {
       var st = calc.strokes[p][h], has = filled(p, h), sc = Number(S.scores[p][h]);
       return '<div class="pl"><div class="nm"><b>' + esc(nm(p)) + '</b><span class="dots">' + (st ? "●".repeat(st) + "</span> <span class=\"sub small\">" + st + " stroke" + (st > 1 ? "s" : "") : "</span><span class=\"sub small\">no stroke") +
@@ -1272,7 +1473,8 @@ if (typeof module !== "undefined") module.exports = MP;
         '<button class="step" data-act="inc" data-p="' + p + '" aria-label="plus">+</button>' +
         '<button class="clr" data-act="clr" data-p="' + p + '" aria-label="clear">✕</button></div>';
     }).join("") + "</div>";
-    if (S.skinsOn || S.birdOn) o += sideCard(calc, h);
+    if (S.game !== "nassau") o += gameCard(calc, h);
+    if (S.birdOn) o += birdCard(calc, h);
     calc.results.forEach(function (r) {
       var thru = 0, last = "";
       r.status.forEach(function (s, i) { if (s) { thru = i + 1; last = s; } });
@@ -1289,7 +1491,8 @@ if (typeof module !== "undefined") module.exports = MP;
   function sumOf(arr) { var v = arr.filter(function (x) { return String(x).trim() !== "" && !isNaN(Number(x)); }); return v.length ? v.reduce(function (a, x) { return a + Number(x); }, 0) : ""; }
   function viewCard() {
     var calc = MP.compute(S), view = S.cardView === "back" || S.cardView === "all" ? S.cardView : "front";
-    var sk = S.skinsOn ? MP.skins(S, calc) : null, bd = S.birdOn ? MP.birdies(S, calc) : null;
+    var sk = S.game === "skins" ? MP.skins(S, calc) : null, bd = S.birdOn ? MP.birdies(S, calc) : null;
+    var vg = S.game === "vegas" ? MP.vegas(S, calc) : null, wg = S.game === "wolf" ? MP.wolfGame(S, calc) : null;
     var cols = [];
     function holes(a, b) { for (var i = a; i <= b; i++) cols.push({ t: "h", h: i }); }
     if (view === "front") { holes(0, 8); cols.push({ t: "s", k: "out" }); }
@@ -1355,6 +1558,34 @@ if (typeof module !== "undefined") module.exports = MP;
         return '<td class="sb">' + (rec.winner !== null ? "<b>" + esc(ini(rec.winner)) + "</b>" + (rec.skins > 1 ? "<sup>×" + rec.skins + "</sup>" : "") : '<span class="sub">' + (rec.carried ? "carry" : "dead") + "</span>") + "</td>";
       }).join("") + "</tr>";
     }
+    if (vg) {
+      var tA = MP.teamLabel(S, [0, 1]), tB = MP.teamLabel(S, [2, 3]);
+      o += '<tr class="mh"><td class="s">Vegas</td><td colspan="' + n + '">' + esc(tA) + " vs " + esc(tB) + " · " + (vg.mode === "net" ? "Net" : "Gross") + " · " + MP.money(vg.amount) + '/pt <span class="sub small">· points are for ' + esc(tA) + "</span></td></tr>";
+      [0, 1].forEach(function (k) {
+        o += '<tr><td class="s"><b class="small">' + (k ? "Team B" : "Team A") + "</b></td>" + cols.map(function (c) {
+          if (c.t === "s") return '<td class="sum sb"></td>';
+          var r = vg.holes[c.h]; return '<td class="sb">' + (r.complete ? "<b>" + r.nums[k] + "</b>" + (r.flipped[k] ? "<sup>↺</sup>" : "") : "") + "</td>";
+        }).join("") + "</tr>";
+      });
+      o += '<tr><td class="s"><b class="small">Pts</b></td>' + cols.map(function (c) {
+        if (c.t === "s") { var t = 0, any = false; for (var i = range(c.k)[0]; i <= range(c.k)[1]; i++) if (vg.holes[i].complete) { any = true; t += vg.holes[i].pts; } return '<td class="sum sb">' + (any ? '<span class="' + (t > 0 ? "pos" : t < 0 ? "neg" : "") + '">' + (t > 0 ? "+" : t < 0 ? "−" : "") + Math.abs(t) + "</span>" : "") + "</td>"; }
+        var r = vg.holes[c.h]; if (!r.complete) return '<td class="sb"></td>';
+        return '<td class="sb"><span class="' + (r.pts > 0 ? "pos" : r.pts < 0 ? "neg" : "") + '">' + (r.pts > 0 ? "+" : r.pts < 0 ? "−" : "") + Math.abs(r.pts) + "</span></td>";
+      }).join("") + "</tr>";
+    }
+    if (wg) {
+      o += '<tr class="mh"><td class="s">Wolf</td><td colspan="' + n + '">' + (wg.mode === "net" ? "Net" : "Gross") + " · " + MP.money(wg.amount) + ' per point <span class="sub small">· W/L is for the wolf\'s side</span></td></tr>';
+      o += '<tr><td class="s"><b class="small">Wolf</b></td>' + cols.map(function (c) { return c.t === "s" ? '<td class="sum sb"></td>' : '<td class="sb"><b>' + esc(ini(wg.holes[c.h].wolf)) + "</b></td>"; }).join("") + "</tr>";
+      o += '<tr><td class="s"><b class="small">Pick</b></td>' + cols.map(function (c) {
+        if (c.t === "s") return '<td class="sum sb"></td>';
+        var r = wg.holes[c.h]; return '<td class="sb">' + (r.choice === "partner" ? esc(ini(r.partner)) : r.choice === "lone" ? "Lone" : r.choice === "blind" ? "Blind" : r.needsChoice ? '<span class="neg">?</span>' : "") + "</td>";
+      }).join("") + "</tr>";
+      o += '<tr><td class="s"><b class="small">Result</b></td>' + cols.map(function (c) {
+        if (c.t === "s") return '<td class="sum sb"></td>';
+        var r = wg.holes[c.h]; if (!r.result) return '<td class="sb"></td>';
+        return '<td class="sb"><span class="' + (r.result === "win" ? "pos" : r.result === "loss" ? "neg" : "") + '">' + (r.result === "win" ? "W" : r.result === "loss" ? "L" : "–") + "</span>" + (r.result !== "push" && r.mult > 1 ? "<sup>×" + r.mult + "</sup>" : "") + "</td>";
+      }).join("") + "</tr>";
+    }
     if (bd) {
       o += '<tr><td class="s"><b class="small">Birdies</b></td>' + cols.map(function (c) {
         if (c.t === "s") { var a = range(c.k)[0], b2 = range(c.k)[1], t = 0; for (var i = a; i <= b2; i++) bd.byHole[i].forEach(function (x) { t += x.n; }); return '<td class="sum sb">' + (t || "") + "</td>"; }
@@ -1362,47 +1593,83 @@ if (typeof module !== "undefined") module.exports = MP;
       }).join("") + "</tr>";
     }
     o += "</table></div>";
-    o += '<div class="legend">● = stroke on that hole · ○ birdie · ◎ eagle · □ bogey or worse · tap a hole number or a score to edit it · scroll sideways for more' + (bd ? " · ★ eagle (counts double)" : "") + ". Presses show as extra rows (F P1 = front press 1). A box like 3&amp;2 means that bet was decided.</div>";
+    o += '<div class="legend">● = stroke on that hole · ○ birdie · ◎ eagle · □ bogey or worse · tap a hole number or a score to edit it · scroll sideways for more' + (bd ? " · ★ eagle (counts double)" : "") + (S.game === "nassau" ? ". Presses show as extra rows (F P1 = front press 1). A box like 3&amp;2 means that bet was decided." : S.game === "vegas" ? ". ↺ = number flipped by a birdie." : S.game === "wolf" ? ". ? = the wolf hasn't picked yet (hole not counted)." : ".") + "</div>";
     o += '<button class="btn" data-act="go" data-v="results">See results and settle up</button>';
     return o;
   }
 
   /* ---------- results screen ---------- */
+  function birdTable(all, bd) {
+    return '<div class="card"><b>Birdies' + (S.birdNet ? " (net)" : "") + " · " + MP.money(bd.amount) + ' each</b><table><tr><th class="l">Player</th><th>Birdies</th><th>Holes</th><th>$</th></tr>' + MP.activePlayers(S).map(function (p) {
+      var hs = []; bd.byHole.forEach(function (list, hh) { list.forEach(function (x) { if (x.p === p) hs.push((hh + 1) + (x.n === 2 ? "★" : "")); }); });
+      return '<tr><td class="l"><b>' + esc(lab(p)) + "</b></td><td>" + bd.count[p] + '</td><td class="sub small">' + hs.join(", ") + '</td><td class="' + cls(all.birdNet[p]) + '">' + MP.signedMoney(all.birdNet[p]) + "</td></tr>";
+    }).join("") + "</table></div>";
+  }
+  /* Settlement table: the selected game's column, a Birdies column only when that add-on is on, and Total. */
+  function settleTable(all, calc, label, note) {
+    var bo = S.birdOn;
+    return '<div class="card"><b>Settle up</b><table><tr><th class="l">Player</th><th>' + esc(label) + "</th>" + (bo ? "<th>Birdies</th>" : "") + "<th>Total</th></tr>" + calc.active.map(function (p) {
+      return '<tr><td class="l"><b>' + esc(lab(p)) + '</b></td><td class="' + cls(all.mainNet[p]) + '">' + MP.signedMoney(all.mainNet[p]) + "</td>" + (bo ? '<td class="' + cls(all.birdNet[p]) + '">' + MP.signedMoney(all.birdNet[p]) + "</td>" : "") +
+        '<td class="' + cls(all.total[p]) + '"><b>' + MP.signedMoney(all.total[p]) + "</b></td></tr>";
+    }).join("") + "</table>" + (note ? '<p class="sub small">' + note + "</p>" : "") + "</div>";
+  }
   function viewResults() {
-    var calc = MP.compute(S), set = MP.settle(S, calc);
-    var vi = Math.min(Number(S.view) || 0, Math.max(calc.results.length - 1, 0)), shown = calc.results[vi];
-    var o = "<h1>Results</h1>" + courseLine();
-    if (calc.results.length > 1) o += seg("view", calc.results.map(function (r, k) { return [k, "vs " + sn(r.sides[1])]; }), vi);
-    o += "<h2>Nassau · Bets" + (shown ? " · " + esc(sn(shown.sides[0])) + " vs " + esc(sn(shown.sides[1])) : "") + '</h2><div class="card">';
-    if (shown) shown.bets.forEach(function (b) {
-      var st = MP.betStatus(S, b, shown.sides);
-      o += '<div class="bet"><div><b>' + esc(b.label) + '</b><div class="sub">' + esc(st.text) + '</div></div><div class="r"><b>' + MP.money(b.amount) + '</b><div class="sub">' + (st.winner === null ? (st.final ? "Push" : "") : "→ " + esc(sn(shown.sides[st.winner]))) + "</div></div></div>";
-    });
-    o += "</div><h2>Settle up · Nassau</h2>";
-    if (!set.anyPlayed) o += '<div class="msg">Enter scores to start the match.</div>';
-    else {
-      o += '<div class="card"><table><tr><th class="l">Player</th><th>Settled</th><th>Still in play</th></tr>' + calc.active.map(function (p) {
-        return '<tr><td class="l"><b>' + esc(nm(p)) + '</b></td><td class="' + cls(set.net[p]) + '">' + MP.signedMoney(set.net[p]) + '</td><td class="' + cls(set.pending[p]) + '">' + MP.signedMoney(set.pending[p]) + "</td></tr>";
-      }).join("") + '</table><p class="sub small">Amounts are per player: winners each collect from losers each. "Still in play" is what you would win or lose on unfinished bets if they ended as they stand now.</p></div>';
-    }
-    if ((S.skinsOn || S.birdOn) && MP.roundHasScores(S)) {
-      var all = MP.settleAll(S, calc), sk = all.skins, bd = all.birdies;
-      o += "<h2>Skins &amp; birdies</h2>";
-      if (S.skinsOn) {
-        o += '<div class="card"><b>Skins · ' + (sk.mode === "net" ? "net" : "gross") + " · " + MP.money(sk.amount) + ' each</b><table><tr><th class="l">Player</th><th>Skins</th><th>Holes</th><th>$</th></tr>' + calc.active.map(function (p) {
+    var calc = MP.compute(S), set = MP.settle(S, calc), g = S.game, played = MP.roundHasScores(S);
+    var all = MP.settleAll(S, calc), GN = { nassau: "Nassau", skins: "Skins", vegas: "Las Vegas", wolf: "Wolf" }[g];
+    var o = "<h1>Results</h1>" + courseLine() + '<div class="sub small" style="margin:-2px 2px 8px">Game: <b>' + GN + "</b>" + (S.birdOn ? " + Birdies add-on" : "") + "</div>";
+    if (g === "nassau") {
+      var vi = Math.min(Number(S.view) || 0, Math.max(calc.results.length - 1, 0)), shown = calc.results[vi];
+      if (calc.results.length > 1) o += seg("view", calc.results.map(function (r, k) { return [k, "vs " + sn(r.sides[1])]; }), vi);
+      o += "<h2>Nassau · Bets" + (shown ? " · " + esc(sn(shown.sides[0])) + " vs " + esc(sn(shown.sides[1])) : "") + '</h2><div class="card">';
+      if (shown) shown.bets.forEach(function (b) {
+        var st = MP.betStatus(S, b, shown.sides);
+        o += '<div class="bet"><div><b>' + esc(b.label) + '</b><div class="sub">' + esc(st.text) + '</div></div><div class="r"><b>' + MP.money(b.amount) + '</b><div class="sub">' + (st.winner === null ? (st.final ? "Push" : "") : "→ " + esc(sn(shown.sides[st.winner]))) + "</div></div></div>";
+      });
+      o += "</div><h2>Settle up · Nassau</h2>";
+      if (!set.anyPlayed) o += '<div class="msg">Enter scores to start the match.</div>';
+      else {
+        o += '<div class="card"><table><tr><th class="l">Player</th><th>Settled</th><th>Still in play</th></tr>' + calc.active.map(function (p) {
+          return '<tr><td class="l"><b>' + esc(nm(p)) + '</b></td><td class="' + cls(set.net[p]) + '">' + MP.signedMoney(set.net[p]) + '</td><td class="' + cls(set.pending[p]) + '">' + MP.signedMoney(set.pending[p]) + "</td></tr>";
+        }).join("") + '</table><p class="sub small">Amounts are per player: winners each collect from losers each. "Still in play" is what you would win or lose on unfinished bets if they ended as they stand now.</p></div>';
+      }
+      if (S.birdOn && played) o += "<h2>Birdies add-on</h2>" + birdTable(all, all.birdies) + settleTable(all, calc, "Nassau", 'Nassau and birdies are kept separate above. "Still in play" Nassau amounts are not included in these totals.');
+    } else {
+      if (g === "skins") {
+        var sk = all.skins;
+        o += "<h2>Skins</h2>";
+        if (!played) o += '<div class="msg">Enter scores to start.</div>';
+        else o += '<div class="card"><b>Skins · ' + (sk.mode === "net" ? "net" : "gross") + " · " + MP.money(sk.amount) + ' each</b><table><tr><th class="l">Player</th><th>Skins</th><th>Holes</th><th>$</th></tr>' + calc.active.map(function (p) {
           return '<tr><td class="l"><b>' + esc(lab(p)) + "</b></td><td>" + sk.won[p] + '</td><td class="sub small">' + sk.wonHoles[p].map(function (x) { return x + 1; }).join(", ") + '</td><td class="' + cls(all.skinNet[p]) + '">' + MP.signedMoney(all.skinNet[p]) + "</td></tr>";
         }).join("") + "</table>" +
           (sk.carry ? '<p class="sub small">' + (sk.leftover ? "Carryover after 18: " + sk.leftover.skins + (sk.leftover.split ? " (split among " + sk.leftover.tied.map(lab).join(" &amp; ") + ")" : " (dies, no payout)") : sk.carry + " skin" + (sk.carry > 1 ? "s" : "") + " carrying to the next hole") + ".</p>" : "") + "</div>";
+      } else if (g === "vegas") {
+        var vg = all.vegas, tA = MP.teamLabel(S, [0, 1]), tB = MP.teamLabel(S, [2, 3]);
+        o += "<h2>Las Vegas · " + esc(tA) + " vs " + esc(tB) + "</h2>";
+        if (!played) o += '<div class="msg">Enter scores to start.</div>';
+        else {
+          o += '<div class="card"><b>Points: ' + (vg.points === 0 ? "all square" : esc(vg.points > 0 ? tA : tB) + " +" + Math.abs(vg.points)) + " · " + MP.money(vg.amount) + ' per point · ' + vg.mode + '</b><table><tr><th>#</th><th>' + esc(tA) + "</th><th>" + esc(tB) + "</th><th>Pts</th></tr>" +
+            vg.holes.filter(function (r) { return r.complete; }).map(function (r) {
+              return "<tr><td>" + (r.h + 1) + "</td><td>" + r.nums[0] + (r.flipped[0] ? " ↺" : "") + "</td><td>" + r.nums[1] + (r.flipped[1] ? " ↺" : "") + '</td><td class="' + cls(r.pts) + '">' + (r.pts > 0 ? "+" : r.pts < 0 ? "−" : "") + Math.abs(r.pts) + "</td></tr>";
+            }).join("") + '</table><p class="sub small">Pts are for ' + esc(tA) + " (− means " + esc(tB) + " won the hole). Each player on the winning team wins the points × " + MP.money(vg.amount) + " from a player on the losing team. ↺ = number flipped by a birdie. Holes with a missing score aren't counted yet.</p></div>";
+        }
+      } else {
+        var wg = all.wolf;
+        o += "<h2>Wolf</h2>";
+        if (!played) o += '<div class="msg">Enter scores to start.</div>';
+        else {
+          if (wg.needChoice.length) o += '<div class="msg bad"><b>Not counted yet:</b> hole' + (wg.needChoice.length > 1 ? "s " : " ") + wg.needChoice.map(function (x) { return x + 1; }).join(", ") + " ha" + (wg.needChoice.length > 1 ? "ve" : "s") + " scores but no wolf pick. Tap the hole, then pick the partner or Lone Wolf.</div>";
+          o += '<div class="card"><b>Wolf · ' + wg.mode + " · " + MP.money(wg.amount) + ' per point</b><table><tr><th class="l">Player</th><th>Points</th><th>$</th></tr>' + calc.active.map(function (p) {
+            return '<tr><td class="l"><b>' + esc(lab(p)) + '</b></td><td class="' + cls(wg.units[p]) + '">' + (wg.units[p] > 0 ? "+" : wg.units[p] < 0 ? "−" : "") + Math.abs(wg.units[p]) + '</td><td class="' + cls(all.wolfNet[p]) + '">' + MP.signedMoney(all.wolfNet[p]) + "</td></tr>";
+          }).join("") + "</table></div>" +
+            '<div class="card"><b>Hole by hole</b><table><tr><th>#</th><th class="l">Wolf</th><th class="l">Pick</th><th>Result</th></tr>' + wg.holes.filter(function (r) { return r.result; }).map(function (r) {
+              return "<tr><td>" + (r.h + 1) + '</td><td class="l">' + esc(lab(r.wolf)) + '</td><td class="l">' + (r.choice === "partner" ? esc(lab(r.partner)) : r.choice === "lone" ? "Lone " + r.mult + "×" : "Blind " + r.mult + "×") + '</td><td class="' + (r.result === "win" ? "pos" : r.result === "loss" ? "neg" : "") + '">' + (r.result === "win" ? "Wolf wins" : r.result === "loss" ? "Wolf loses" : "Push") + "</td></tr>";
+            }).join("") + "</table></div>";
+        }
       }
-      if (S.birdOn) {
-        o += '<div class="card"><b>Birdies' + (S.birdNet ? " (net)" : "") + " · " + MP.money(bd.amount) + ' each</b><table><tr><th class="l">Player</th><th>Birdies</th><th>Holes</th><th>$</th></tr>' + calc.active.map(function (p) {
-          var hs = []; bd.byHole.forEach(function (list, hh) { list.forEach(function (x) { if (x.p === p) hs.push((hh + 1) + (x.n === 2 ? "★" : "")); }); });
-          return '<tr><td class="l"><b>' + esc(lab(p)) + "</b></td><td>" + bd.count[p] + '</td><td class="sub small">' + hs.join(", ") + '</td><td class="' + cls(all.birdNet[p]) + '">' + MP.signedMoney(all.birdNet[p]) + "</td></tr>";
-        }).join("") + "</table></div>";
+      if (played) {
+        if (S.birdOn) o += "<h2>Birdies add-on</h2>" + birdTable(all, all.birdies);
+        o += "<h2>Settle up</h2>" + settleTable(all, calc, GN, "Amounts are in dollars; the totals add to zero.");
       }
-      o += '<div class="card"><b>Total settled, all bets</b><table><tr><th class="l">Player</th><th>Nassau</th><th>Skins</th><th>Birdies</th><th>Total</th></tr>' + calc.active.map(function (p) {
-        return '<tr><td class="l"><b>' + esc(lab(p)) + '</b></td><td class="' + cls(all.nassauNet[p]) + '">' + MP.signedMoney(all.nassauNet[p]) + '</td><td class="' + cls(all.skinNet[p]) + '">' + MP.signedMoney(all.skinNet[p]) + '</td><td class="' + cls(all.birdNet[p]) + '">' + MP.signedMoney(all.birdNet[p]) + '</td><td class="' + cls(all.total[p]) + '"><b>' + MP.signedMoney(all.total[p]) + "</b></td></tr>";
-      }).join("") + '</table><p class="sub small">Nassau matches, skins and birdies are kept separate above. "Still in play" Nassau amounts are not included in these totals.</p></div>';
     }
     o += '<button class="btn" data-act="go" data-v="card" style="margin-bottom:10px">Open full scorecard</button>';
     o += '<button class="btn dng" data-act="newround">New round (clear scores)</button>';
@@ -1436,20 +1703,27 @@ if (typeof module !== "undefined") module.exports = MP;
     S.scores[p][S.hole] = v; save(); syncRoster(); render();
     try { showToast(MP.diffEvents(prev, S)); } catch (e) {}
   }
+  function setWolf(h, v) {
+    var cur = String(S.wolf[h] || ""), nv = cur === v ? "" : v; /* tapping the chosen button again clears it */
+    var prev = JSON.parse(JSON.stringify(S));
+    MP.undoPushWolf(undo, S, h);
+    S.wolf[h] = nv; save(); render();
+    try { showToast(MP.diffEvents(prev, S)); } catch (e) {}
+  }
   function doUndo() {
     var e = MP.undoPop(undo, S); if (!e) return;
     S.hole = e.h; save(); render();
-    showToast([{ type: "info", text: "Undid " + lab(e.p) + " on #" + (e.h + 1) }]);
+    showToast([{ type: "info", text: e.k === "wolf" ? "Undid the wolf pick on #" + (e.h + 1) : "Undid " + lab(e.p) + " on #" + (e.h + 1) }]);
   }
   function newRound() {
     if (!window.confirm("Start a new round? This clears all scores. Indexes are refreshed from the Players tab (blank if a player has none). Names and bet amounts are kept.")) return;
     var liveNR = findC(S.courseId); if (liveNR && MP.courseChanged(S, liveNR)) switchCourse(liveNR);
-    S.scores = MP.emptyScores(); undo = []; S.indexes = ["", "", "", "", ""]; S.idxSrc = [null, null, null, null, null]; S.idxOver = [null, null, null, null, null]; applyAuto(); S.hole = 0; S.view = 0; S.screen = "setup"; tried = false; save(); render(); window.scrollTo(0, 0);
+    S.scores = MP.emptyScores(); S.wolf = MP.emptyWolf(); undo = []; S.indexes = ["", "", "", "", ""]; S.idxSrc = [null, null, null, null, null]; S.idxOver = [null, null, null, null, null]; applyAuto(); S.hole = 0; S.view = 0; S.screen = "setup"; tried = false; save(); render(); window.scrollTo(0, 0);
   }
   function sample() {
     if (!window.confirm("Replace the current round with the sample wheel round (Al, Bob, Chris, Dan, Eddie) on Annandale?")) return;
     var d = MP.SAMPLE;
-    undo = []; MP.applyCourse(S, MP.ANNANDALE, "Blue"); S.format = "wheel"; S.names = d.names.slice(); S.indexes = d.indexes.slice(); S.idxSrc = [null, null, null, null, null]; S.idxOver = [null, null, null, null, null]; S.scores = d.scores.map(function (r) { return r.map(String); });
+    undo = []; MP.applyCourse(S, MP.ANNANDALE, "Blue"); S.game = "nassau"; S.wolf = MP.emptyWolf(); S.format = "wheel"; S.names = d.names.slice(); S.indexes = d.indexes.slice(); S.idxSrc = [null, null, null, null, null]; S.idxOver = [null, null, null, null, null]; S.scores = d.scores.map(function (r) { return r.map(String); });
     S.tee = "Blue"; S.slope = "125"; S.rating = "70.4"; S.allowance = "90"; S.front = S.back = S.overall = "10"; S.autoPress = true; S.useHcp = true; S.view = 0; S.hole = 0; tried = false;
     save(); render();
   }
@@ -1458,6 +1732,10 @@ if (typeof module !== "undefined") module.exports = MP;
     var el = e.target.closest("[data-act]"); if (!el) return;
     var a = el.getAttribute("data-act"), v = el.getAttribute("data-v"), p = Number(el.getAttribute("data-p"));
     if (a === "go") go(v);
+    else if (a === "game") { S.game = v; S.allowance = v === "nassau" ? (S.format === "singles" ? "100" : "90") : "100"; S.view = 0; save(); render(); }
+    else if (a === "skinN") { S.skinN = Number(v); save(); render(); }
+    else if (a === "wolfN") { S.wolfN = Number(v) === 5 ? 5 : 4; save(); render(); }
+    else if (a === "wolfpick") setWolf(S.hole, v);
     else if (a === "format") { S.format = v; S.allowance = v === "singles" ? "100" : "90"; S.view = 0; save(); render(); }
     else if (a === "view") { S.view = Number(v); save(); render(); }
     else if (a === "hole") { S.hole = Number(v); save(); render(); }
@@ -1499,7 +1777,7 @@ if (typeof module !== "undefined") module.exports = MP;
       MP.saveCourses(localStorage, C); ed = null; edErr = []; go("courses");
     }
     else if (a === "edit") { S.hole = Number(v); go("hole"); }
-    else if (a === "cardView" || a === "skinMode" || a === "skinLeft") { S[a] = v; save(); render(); }
+    else if (a === "cardView" || a === "skinMode" || a === "skinLeft" || a === "vegasMode" || a === "wolfMode") { S[a] = v; save(); render(); }
     else if (a === "plus") {
       var pi2 = Number(el.getAttribute("data-p")), cv = String(S.indexes[pi2] || "").trim();
       S.indexes[pi2] = cv.charAt(0) === "+" ? cv.slice(1) : "+" + cv; S.idxSrc[pi2] = null; var ptv = String(S.indexes[pi2]).trim(); S.idxOver[pi2] = ptv ? { name: MP.normName(S.names[pi2]), value: ptv } : null; applyAuto(); save(); render();
@@ -1571,6 +1849,11 @@ if (typeof module !== "undefined") module.exports = MP;
     if (k === "edpar") { ed.par[Number(el.getAttribute("data-i"))] = Number(el.value); render(); return; }
     if (k === "edsi") { ed.si[Number(el.getAttribute("data-i"))] = Number(el.value); render(); return; }
     if (k === "course") { var nc = findC(el.value); if (nc && nc.id !== S.courseId && confirmSwitch(nc)) switchCourse(nc); else render(); return; }
+    if (k === "wolforder") {
+      var ord = MP.wolfOrderOf(S), pos = Number(el.getAttribute("data-i")), np = Number(el.value), at = ord.indexOf(np);
+      if (at >= 0 && pos >= 0 && pos < ord.length) { var tmp = ord[pos]; ord[pos] = ord[at]; ord[at] = tmp; S.wolfOrder = ord.concat(S.wolfOrder.filter(function (x) { return ord.indexOf(x) < 0; })); save(); }
+      render(); return;
+    }
     if (k === "pick") {
       var pi = Number(el.getAttribute("data-i")), pe = el.value ? MP.rosterFind(R, el.value) : null;
       if (pe) { if (MP.normName(S.names[pi]) !== MP.normName(pe.name)) { S.indexes[pi] = ""; S.idxSrc[pi] = null; } S.names[pi] = pe.name; applyAuto(); save(); syncRoster(); render(); }
