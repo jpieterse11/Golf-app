@@ -124,6 +124,16 @@ table.scd{border-collapse:separate;border-spacing:0;font-size:14px;width:auto;mi
 .scd td.sb{font-size:12px;font-weight:700;height:34px;white-space:normal;line-height:1.1}
 .scd sup{font-size:9px}
 .legend{font-size:13px;color:var(--sub);margin:4px 2px 12px}
+textarea{width:100%;min-height:130px;font:13px/1.35 ui-monospace,Menlo,monospace;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--inp);color:var(--text);resize:vertical}
+select.bad{border-color:var(--red);border-width:2px;background:var(--warn)}
+.hg{display:grid;grid-template-columns:24px 1fr 1fr 24px 1fr 1fr;gap:6px;align-items:center}
+.hg select{padding:4px 2px;text-align:center;text-align-last:center}
+.hg b.n{text-align:center;font-size:15px}
+.hg .hh{font-size:12px;color:var(--sub);text-align:center;font-weight:600}
+.cb{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.cb .btn{min-height:46px;font-size:15px}
+.badge{display:inline-block;border-radius:8px;background:var(--soft);padding:2px 8px;font-size:12px;font-weight:700;margin-left:6px;vertical-align:middle}
+.cname{font-size:13px;color:var(--sub);margin:2px 2px 6px}
 </style>
 </head>
 <body>
@@ -144,6 +154,13 @@ var MP = (function () {
     { name: "White/Green", yards: 5214, rating: "65.7", slope: "113" },
     { name: "Green", yards: 5041, rating: "64.9", slope: "110" }
   ];
+  /* ---- Course model (built-in Annandale + user courses) ---- */
+  var COURSE_FORMAT = "matchplay-course";
+  var COURSES_KEY = "matchplay.golf.courses.v1";
+  var ANNANDALE = {
+    id: "annandale", name: "Annandale Golf Club", location: "Pasadena, CA", par: DEFAULT_PAR.slice(), si: DEFAULT_SI.slice(),
+    tees: TEES.map(function (t) { return { name: t.name, rating: Number(t.rating), slope: Number(t.slope), yards: t.yards }; })
+  };
   var HOLES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
   var WHEEL_PAIRS = [[2, 3], [2, 4], [3, 4]];
 
@@ -156,7 +173,8 @@ var MP = (function () {
       indexes: ["", "", "", "", ""],
       wheelPairs: [true, true, true],
       useHcp: true,
-      tee: "Blue", slope: "125", rating: "70.4",
+      tee: "Blue", slope: "125", rating: "70.4", teePar: "",
+      course: snapshotOf(ANNANDALE), courseId: "annandale",
       allowance: "90",
       front: "10", back: "10", overall: "10",
       autoPress: true,
@@ -228,7 +246,11 @@ var MP = (function () {
   }
   function nameOf(state, i) { var n = String(state.names[i] || "").trim(); return n ? n : "Player " + (i + 1); }
   function sideName(state, s) { return s.map(function (p) { return nameOf(state, p); }).join(" & "); }
-  function coursePar(state) { return state.par.reduce(function (a, p) { return a + (Number(p) || 0); }, 0); }
+  function coursePar(state) {
+    var tp = Number(state.teePar); /* a tee can have its own par (e.g. women's tees); otherwise the sum of the hole pars */
+    if (tp > 0) return tp;
+    return state.par.reduce(function (a, p) { return a + (Number(p) || 0); }, 0);
+  }
 
   function matchDefs(state) {
     if (state.format === "singles") return [{ sides: [[0], [1]] }];
@@ -318,6 +340,111 @@ var MP = (function () {
       [4, 4, 4, 5, 3, 5, 4, 4, 3, 4, 5, 3, 5, 5, 3, 4, 5, 5]
     ]
   };
+
+  /* ---- Courses: validate, import/export, snapshot ---- */
+  function snapshotOf(c) {
+    var o = { id: c.id || "", name: c.name, location: c.location || "", par: c.par.slice(), si: c.si.slice(), tees: c.tees.map(function (t) { var x = { name: t.name, rating: t.rating, slope: t.slope }; if (t.par) x.par = t.par; if (t.yards) x.yards = t.yards; return x; }) };
+    return o;
+  }
+  function toNum(v) { if (typeof v === "number") return v; if (typeof v === "string" && v.trim() !== "") return Number(v.trim()); return NaN; }
+  function checkCourse(raw) {
+    var errors = [], c = { id: "", name: "", location: "", par: [], si: [], tees: [] };
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { ok: false, errors: ["A course must be a JSON object."], course: null };
+    c.id = typeof raw.id === "string" ? raw.id : "";
+    c.name = cleanName(raw.name);
+    if (!c.name) errors.push("Course name is required."); else if (c.name.length > 60) errors.push("Course name is too long (60 characters max).");
+    c.location = cleanName(raw.location);
+    if (c.location.length > 80) errors.push("Location is too long (80 characters max).");
+    if (!Array.isArray(raw.par) || raw.par.length !== 18) errors.push("Par needs exactly 18 holes.");
+    else raw.par.forEach(function (v, i) { var n = toNum(v); if (!(Number.isInteger(n) && n >= 3 && n <= 6)) errors.push("Hole " + (i + 1) + " par must be 3, 4, 5 or 6."); c.par.push(n); });
+    var hc = raw.handicap !== undefined ? raw.handicap : raw.si !== undefined ? raw.si : raw.strokeIndex;
+    if (!Array.isArray(hc) || hc.length !== 18) errors.push("Hole handicaps need exactly 18 holes.");
+    else {
+      var cnt = {}, bad = false;
+      hc.forEach(function (v, i) { var n = toNum(v); if (!(Number.isInteger(n) && n >= 1 && n <= 18)) { bad = true; errors.push("Hole " + (i + 1) + " handicap must be a whole number 1 to 18."); } else cnt[n] = (cnt[n] || 0) + 1; c.si.push(n); });
+      if (!bad) {
+        var rep = [], miss = [];
+        for (var k = 1; k <= 18; k++) { if ((cnt[k] || 0) > 1) rep.push(k); if (!cnt[k]) miss.push(k); }
+        if (rep.length) errors.push("Hole handicaps must use 1 to 18 once each (repeated: " + rep.join(", ") + "; missing: " + miss.join(", ") + ").");
+      }
+    }
+    var sumPar = c.par.length === 18 && c.par.every(function (x) { return Number.isInteger(x); }) ? c.par.reduce(function (a, b) { return a + b; }, 0) : 0;
+    if (!Array.isArray(raw.tees) || raw.tees.length < 1) errors.push("Add at least one tee.");
+    else if (raw.tees.length > 12) errors.push("Too many tees (12 max).");
+    else {
+      var seen = {};
+      raw.tees.forEach(function (t, i) {
+        var w = "Tee " + (i + 1) + (t && t.name ? " (" + cleanName(t.name) + ")" : "") + ": ";
+        if (!t || typeof t !== "object") { errors.push(w + "invalid."); return; }
+        var tee = { name: cleanName(t.name), rating: toNum(t.rating), slope: toNum(t.slope) };
+        if (!tee.name) errors.push(w + "name is required."); else if (tee.name.length > 30) errors.push(w + "name is too long."); else if (seen[normName(tee.name)]) errors.push(w + "duplicate tee name."); else seen[normName(tee.name)] = 1;
+        if (!(Number.isInteger(tee.slope) && tee.slope >= 55 && tee.slope <= 155)) errors.push(w + "slope must be a whole number 55 to 155.");
+        if (!(tee.rating >= 50 && tee.rating <= 90)) errors.push(w + "rating must be between 50 and 90.");
+        else tee.rating = Math.round(tee.rating * 10) / 10;
+        if (t.par !== undefined && t.par !== null && String(t.par).trim() !== "") {
+          var tp = toNum(t.par);
+          if (!(Number.isInteger(tp) && tp >= 54 && tp <= 90)) errors.push(w + "par must be a whole number 54 to 90 (or leave blank to use the sum of the hole pars)."); else tee.par = tp;
+        }
+        if (t.yards !== undefined && t.yards !== null && String(t.yards).trim() !== "") {
+          var y = toNum(t.yards);
+          if (!(Number.isInteger(y) && y > 0 && y < 12000)) errors.push(w + "yards must be a whole number."); else tee.yards = y;
+        }
+        var par = tee.par || sumPar;
+        if (par && tee.rating >= 50 && tee.rating <= 90 && Math.abs(tee.rating - par) > 15) errors.push(w + "rating " + tee.rating + " does not look right for par " + par + ".");
+        c.tees.push(tee);
+      });
+    }
+    return { ok: errors.length === 0, errors: errors, course: errors.length ? c : snapshotOf(c) };
+  }
+  function exportCourse(course) {
+    var c = snapshotOf(course);
+    return "{\n" +
+      '  "format": "' + COURSE_FORMAT + '",\n  "version": 1,\n  "name": ' + JSON.stringify(c.name) + ",\n  \"location\": " + JSON.stringify(c.location) + ",\n" +
+      '  "par": ' + JSON.stringify(c.par) + ",\n  \"handicap\": " + JSON.stringify(c.si) + ",\n  \"tees\": [\n" +
+      c.tees.map(function (t) { return '    { "name": ' + JSON.stringify(t.name) + ', "rating": ' + t.rating + ', "slope": ' + t.slope + (t.par ? ', "par": ' + t.par : "") + (t.yards ? ', "yards": ' + t.yards : "") + " }"; }).join(",\n") + "\n  ]\n}";
+  }
+  function importCourse(text) {
+    var t = String(text == null ? "" : text).trim().replace(/^```[a-z]*\s*/i, "").replace(/```\s*$/, "").trim();
+    if (!t) return { ok: false, errors: ["Paste the course JSON first."], course: null };
+    var o; try { o = JSON.parse(t); } catch (e) { return { ok: false, errors: ["That is not valid JSON. Paste the whole course text, starting with { and ending with }."], course: null }; }
+    if (o && typeof o === "object" && o.format !== undefined && o.format !== COURSE_FORMAT) return { ok: false, errors: ['This is not a course file (format should be "' + COURSE_FORMAT + '").'], course: null };
+    var r = checkCourse(o); if (r.course) r.course.id = ""; return r;
+  }
+  function newCourseId() { return "c" + Date.now().toString(36) + Math.floor(Math.random() * 1e8).toString(36); }
+  function loadCourses(storage) {
+    var out = [], seen = { annandale: 1 };
+    try {
+      var arr = JSON.parse(storage.getItem(COURSES_KEY) || "[]");
+      if (Array.isArray(arr)) arr.forEach(function (x) { var r = checkCourse(x); if (!r.ok) return; var c = r.course; if (!c.id || seen[c.id]) c.id = newCourseId(); seen[c.id] = 1; out.push(c); });
+    } catch (e) {}
+    return out;
+  }
+  function saveCourses(storage, list) { try { storage.setItem(COURSES_KEY, JSON.stringify(list)); } catch (e) {} }
+  function allCourses(user) { return [ANNANDALE].concat(user); }
+  function findCourse(user, id) { var l = allCourses(user); for (var i = 0; i < l.length; i++) if (l[i].id === id) return l[i]; return null; }
+  function uniqueCourseName(user, name) {
+    var n = cleanName(name), base = n, k = 2;
+    while (allCourses(user).some(function (c) { return normName(c.name) === normName(n); })) n = base + " (" + (k++) + ")";
+    return n;
+  }
+  function applyTee(state, teeName) {
+    var t = null; state.course.tees.forEach(function (x) { if (!t && normName(x.name) === normName(teeName)) t = x; });
+    if (!t) return false;
+    state.tee = t.name; state.slope = String(t.slope); state.rating = String(t.rating); state.teePar = t.par ? String(t.par) : "";
+    return true;
+  }
+  /* Copies the course into the round (so later edits to the saved course never change this round) and sets par, hole handicaps, tee rating/slope. */
+  function applyCourse(state, course, teeName) {
+    state.course = snapshotOf(course); state.courseId = course.id;
+    state.par = course.par.map(String); state.si = course.si.map(String);
+    if (!applyTee(state, teeName || state.tee)) applyTee(state, course.tees[0].name);
+    return state;
+  }
+  function courseChanged(state, live) {
+    if (!live) return false;
+    var a = snapshotOf(state.course), b = snapshotOf(live); a.id = b.id = "";
+    return JSON.stringify(a) !== JSON.stringify(b);
+  }
 
   /* ---- Side bets: skins and birdies (new; the Nassau/press logic above is untouched) ---- */
   function holeComplete(state, active, h) {
@@ -508,6 +635,9 @@ var MP = (function () {
   }
 
   return {
+    COURSE_FORMAT: COURSE_FORMAT, COURSES_KEY: COURSES_KEY, ANNANDALE: ANNANDALE, checkCourse: checkCourse, exportCourse: exportCourse, importCourse: importCourse, snapshotOf: snapshotOf,
+    newCourseId: newCourseId, loadCourses: loadCourses, saveCourses: saveCourses, allCourses: allCourses, findCourse: findCourse, uniqueCourseName: uniqueCourseName,
+    applyTee: applyTee, applyCourse: applyCourse, courseChanged: courseChanged,
     skins: skins, birdies: birdies, settleAll: settleAll, undoPush: undoPush, undoPop: undoPop, diffEvents: diffEvents, holeComplete: holeComplete,
     ROSTER_KEY: ROSTER_KEY, FAVORITES: FAVORITES, normName: normName, cleanName: cleanName, validIndex: validIndex, missingIndexes: missingIndexes, seedRoster: seedRoster, parseRoster: parseRoster,
     loadRoster: loadRoster, saveRoster: saveRoster, sortRoster: sortRoster, rosterFind: rosterFind, roundHasScores: roundHasScores, isSampleRound: isSampleRound, rosterAutoSave: rosterAutoSave,
@@ -526,6 +656,8 @@ if (typeof module !== "undefined") module.exports = MP;
   var KEY = "matchplay.golf.v1";
   var S = MP.defaultState();
   var R = [];
+  var C = []; /* saved (user) courses */
+  var ed = null, edErr = [], exportId = null, impText = "", impMsg = null; /* course editor / import-export UI state */
   var undo = []; /* session-only undo stack of score entries */
   var toastTimer = null;
   var tried = false; /* user tried to start without all indexes */
@@ -545,6 +677,16 @@ if (typeof module !== "undefined") module.exports = MP;
         } else if (typeof o[k] !== typeof d[k]) return;
         d[k] = o[k];
       });
+      var ck = MP.checkCourse(d.course);
+      if (!ck.ok) { d.course = MP.snapshotOf(MP.ANNANDALE); d.courseId = "annandale"; }
+      else { ck.course.id = String(d.courseId || ck.course.id || ""); d.course = ck.course; }
+      /* rounds saved before courses existed (or with hand-edited par/handicaps): keep their par/handicaps as the round's course */
+      if (d.par.join() !== d.course.par.join() || d.si.join() !== d.course.si.join()) {
+        var cp = d.par.map(Number), cs = d.si.map(Number);
+        if (MP.checkCourse({ name: "x", par: cp, handicap: cs, tees: [{ name: "t", rating: 70, slope: 113 }] }).ok) { d.course = MP.snapshotOf(d.course); d.course.par = cp; d.course.si = cs; d.course.name += " (edited)"; d.courseId = "custom"; }
+        else { d.par = d.course.par.map(String); d.si = d.course.si.map(String); }
+      }
+      if (d.screen === "courses" || d.screen === "courseedit") d.screen = "setup";
       S = d;
     } catch (e) {}
   }
@@ -607,6 +749,78 @@ if (typeof module !== "undefined") module.exports = MP;
   function idxMsg() {
     return '<div class="msg bad" id="idxmsg"' + (tried && MP.missingIndexes(S).length ? "" : " hidden") + "><b>Enter today's index for each player.</b> Handicap indexes change daily, so they are not saved. Use a + for plus handicaps (e.g. +1.2).</div>";
   }
+  function courseOpts() {
+    var list = MP.allCourses(C), found = list.some(function (c) { return c.id === S.courseId; });
+    return list.map(function (c) { return '<option value="' + esc(c.id) + '"' + (c.id === S.courseId ? " selected" : "") + ">" + esc(c.name + (c.location ? " · " + c.location : "")) + "</option>"; }).join("") +
+      (found ? "" : '<option value="' + esc(S.courseId) + '" selected>' + esc(S.course.name) + " (copy kept with this round)</option>");
+  }
+  function switchCourse(c) {
+    var pt = S.tee, ps = S.slope, pr = S.rating, pp = S.teePar;
+    MP.applyCourse(S, c, pt);
+    if (pt === "Custom") { S.tee = "Custom"; S.slope = ps; S.rating = pr; S.teePar = pp; }
+    S.hole = Math.min(S.hole, 17); save(); render();
+  }
+  function confirmSwitch(c) {
+    if (MP.roundHasScores(S) && !window.confirm("Switch to " + c.name + "? Scores are kept, and par, hole handicaps and strokes recalculate for the new course.")) return false;
+    return true;
+  }
+  function courseLine() {
+    var t = S.tee === "Custom" ? "Custom tee" : S.tee + " tees";
+    return '<div class="cname"><b>' + esc(S.course.name) + "</b> · " + esc(t) + " · " + esc(S.rating) + " / " + esc(S.slope) + " · Par " + (Number(S.teePar) || MP.coursePar(S)) + "</div>";
+  }
+  function parSum(c) { return c.par.reduce(function (a, b) { return a + (Number(b) || 0); }, 0); }
+  function viewCourses() {
+    var o = '<button class="btn" data-act="go" data-v="setup" style="margin-bottom:8px">‹ Back to Setup</button><h1>🏌️ Courses</h1>';
+    if (exportId) {
+      var ec = MP.findCourse(C, exportId);
+      if (ec) o += '<div class="card"><b>Export · ' + esc(ec.name) + '</b><p class="sub small">Copy this text and send it to a buddy, or paste it into Import on another phone.</p><textarea id="exptxt" readonly>' + esc(MP.exportCourse(ec)) + '</textarea><div class="cb"><button class="btn pri" data-act="copyexp">Copy text</button>' +
+        (navigator.share ? '<button class="btn" data-act="shareexp">Share…</button>' : "<span></span>") + '</div><button class="btn" style="margin-top:8px" data-act="closeexp">Close</button></div>';
+    }
+    MP.allCourses(C).forEach(function (c) {
+      var built = c.id === "annandale", cur = c.id === S.courseId;
+      o += '<div class="card"><b style="font-size:18px">' + esc(c.name) + "</b>" + (cur ? '<span class="badge">in use</span>' : "") + (built ? '<span class="badge">built-in</span>' : "") +
+        '<div class="sub small">' + esc(c.location ? c.location + " · " : "") + "Par " + parSum(c) + " · " + c.tees.length + " tee" + (c.tees.length === 1 ? "" : "s") + ": " + esc(c.tees.map(function (t) { return t.name; }).join(", ")) + "</div>" +
+        '<div class="cb"><button class="btn pri" data-act="usecourse" data-v="' + esc(c.id) + '">Use for this round</button>' + (built ? "" : '<button class="btn" data-act="editcourse" data-v="' + esc(c.id) + '">Edit</button>') +
+        '<button class="btn" data-act="dupcourse" data-v="' + esc(c.id) + '">Duplicate</button><button class="btn" data-act="expcourse" data-v="' + esc(c.id) + '">Export</button>' +
+        (built ? "" : '<button class="btn dng" data-act="delcourse" data-v="' + esc(c.id) + '">Delete</button>') + "</div></div>";
+    });
+    o += '<button class="btn pri" data-act="newcourse" style="margin-top:4px">+ New course</button>';
+    o += '<h2>Import a course</h2><div class="card"><p class="sub small" style="margin-top:0">Paste course text (JSON) that a buddy sent you.</p><textarea data-k="importtxt" placeholder=\'{ "format": "matchplay-course", "version": 1, "name": "…", … }\' spellcheck="false" autocapitalize="off" autocomplete="off">' + esc(impText) + "</textarea>";
+    if (impMsg) o += '<div class="msg' + (impMsg.ok ? "" : " bad") + '" style="margin-top:8px">' + (impMsg.ok ? esc(impMsg.text) : "<b>Can't import:</b><ul style=\"margin:4px 0 0 18px;padding:0\">" + impMsg.errors.map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>") + "</div>";
+    o += '<button class="btn pri" style="margin-top:10px" data-act="importcourse">Import course</button></div>';
+    return o;
+  }
+  function blankEd() { var si = [], i; for (i = 1; i <= 18; i++) si.push(i); return { id: "", name: "", location: "", par: [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4], si: si, tees: [{ name: "White", rating: "72.0", slope: "113", par: "", yards: "" }] }; }
+  function edFrom(c, asNew, name) {
+    return { id: asNew ? "" : c.id, name: name || c.name, location: c.location || "", par: c.par.slice(), si: c.si.slice(), tees: c.tees.map(function (t) { return { name: t.name, rating: String(t.rating), slope: String(t.slope), par: t.par ? String(t.par) : "", yards: t.yards ? String(t.yards) : "" }; }) };
+  }
+  function edRaw() { return { id: ed.id, name: ed.name, location: ed.location, par: ed.par, handicap: ed.si.map(function (x) { return x || ""; }), tees: ed.tees }; }
+  function viewCourseEdit() {
+    var cnt = {}; ed.si.forEach(function (v) { if (v) cnt[v] = (cnt[v] || 0) + 1; });
+    function bad(i) { return !ed.si[i] || cnt[ed.si[i]] > 1; }
+    var dups = Object.keys(cnt).filter(function (k) { return cnt[k] > 1; }).map(Number).sort(function (a, b) { return a - b; });
+    var missing = []; for (var k = 1; k <= 18; k++) if (!cnt[k]) missing.push(k);
+    function parSel(i) { return '<select data-k="edpar" data-i="' + i + '" aria-label="Par hole ' + (i + 1) + '">' + [3, 4, 5, 6].map(function (v) { return '<option value="' + v + '"' + (ed.par[i] === v ? " selected" : "") + ">" + v + "</option>"; }).join("") + "</select>"; }
+    function siSel(i) { var o = '<select data-k="edsi" data-i="' + i + '" class="' + (bad(i) ? "bad" : "") + '" aria-label="Handicap hole ' + (i + 1) + '"><option value="0"' + (ed.si[i] ? "" : " selected") + ">–</option>"; for (var v = 1; v <= 18; v++) o += '<option value="' + v + '"' + (ed.si[i] === v ? " selected" : "") + ">" + v + "</option>"; return o + "</select>"; }
+    var out = ed.par.slice(0, 9).reduce(function (a, b) { return a + b; }, 0), inn = ed.par.slice(9).reduce(function (a, b) { return a + b; }, 0);
+    var o = '<button class="btn" data-act="canceled" style="margin-bottom:8px">‹ Cancel</button><h1>' + (ed.id ? "Edit course" : "New course") + "</h1>";
+    if (edErr.length) o += '<div class="msg bad"><b>Fix these first:</b><ul style="margin:4px 0 0 18px;padding:0">' + edErr.map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul></div>";
+    o += '<div class="card"><div style="margin-bottom:10px">' + txt("Course name", "edname", ed.name, "e.g. Rancho Park") + "</div>" + txt("Location (optional)", "edloc", ed.location, "City, State") + "</div>";
+    o += "<h2>Holes</h2><div class=\"card\"><div class=\"hg\" style=\"margin-bottom:4px\">" + ["Hole", "Par", "HCP", "Hole", "Par", "HCP"].map(function (x) { return '<div class="hh">' + x + "</div>"; }).join("") + "</div><div class=\"hg\">";
+    for (var r = 0; r < 9; r++) o += '<b class="n">' + (r + 1) + "</b>" + parSel(r) + siSel(r) + '<b class="n">' + (r + 10) + "</b>" + parSel(r + 9) + siSel(r + 9);
+    o += "</div>";
+    o += '<p class="sub small" style="margin-bottom:0">Par: Out ' + out + " · In " + inn + " · <b>Total " + (out + inn) + "</b></p>";
+    o += (dups.length || missing.length ? '<div class="msg bad" style="margin-top:8px">Hole handicaps need 1 to 18 once each.' + (dups.length ? " Repeated: " + dups.join(", ") + "." : "") + (missing.length ? " Missing: " + missing.join(", ") + "." : "") + "</div>" : '<p class="sub small" style="margin-bottom:0;color:var(--ok)">✓ Hole handicaps use 1 to 18 once each.</p>') + "</div>";
+    o += "<h2>Tees</h2>";
+    ed.tees.forEach(function (t, i) {
+      o += '<div class="card"><div class="row" style="margin-bottom:8px"><div class="grow"><label class="f">Tee name</label><input type="text" autocomplete="off" autocapitalize="words" data-k="edtee" data-i="' + i + '" data-f="name" value="' + esc(t.name) + '" placeholder="e.g. Blue, or Red (women)"></div>' +
+        '<button class="del" data-act="rmtee" data-v="' + i + '" aria-label="Remove tee" style="margin-top:18px"' + (ed.tees.length < 2 ? " disabled" : "") + ">✕</button></div>" +
+        '<div class="grid3">' + ["rating|Rating|decimal|70.4", "slope|Slope|numeric|125", "par|Par (optional)|numeric|" + (out + inn)].map(function (f) { f = f.split("|"); return '<div><label class="f">' + f[1] + '</label><input type="text" inputmode="' + f[2] + '" autocomplete="off" data-k="edtee" data-i="' + i + '" data-f="' + f[0] + '" value="' + esc(t[f[0]]) + '" placeholder="' + f[3] + '"></div>'; }).join("") + "</div></div>";
+    });
+    o += '<button class="btn" data-act="addtee">+ Add tee</button><p class="sub small">Women\'s or other tees are just named tees (e.g. "Red (women)") with their own rating and slope. Leave Par blank to use the total above.</p>';
+    o += '<button class="btn pri" data-act="savecourse">Save course</button>';
+    return o;
+  }
   function pickSel(p, active) {
     var cur = MP.normName(S.names[p]), taken = {};
     active.forEach(function (q) { if (q !== p) taken[MP.normName(S.names[q])] = 1; });
@@ -644,8 +858,13 @@ if (typeof module !== "undefined") module.exports = MP;
       h += '<div class="card"><div class="sub" style="margin-bottom:6px">' + esc(playerLabel(p)) + "</div>" + pickSel(p, calc.active) + '<div class="grid2">' +
         txt("Name", "names", S.names[p], "Player " + (p + 1), "", p) + idxField(p) + "</div></div>";
     });
-    h += "<h2>Course · Annandale GC</h2><div class=\"card\"><label class=\"f\">Men's tee</label><select data-k=\"tee\">" +
-      MP.TEES.map(function (t) { return '<option value="' + esc(t.name) + '"' + (S.tee === t.name ? " selected" : "") + ">" + esc(t.name + " · " + t.yards + " yds · " + t.rating + " / " + t.slope) + "</option>"; }).join("") +
+    var liveC = MP.findCourse(C, S.courseId), tp = Number(S.teePar) || MP.coursePar(S);
+    h += "<h2>Course</h2><div class=\"card\"><label class=\"f\">Course</label><select data-k=\"course\">" + courseOpts() + "</select>" +
+      '<div class="sub small" style="margin:4px 2px 0">' + esc(S.course.location ? S.course.location + " · " : "") + "Par " + tp + " · " + S.course.tees.length + " tee" + (S.course.tees.length === 1 ? "" : "s") + "</div>" +
+      (liveC && MP.courseChanged(S, liveC) ? '<div class="msg" style="margin-top:8px"><b>' + esc(liveC.name) + '</b> was edited since this round started. This round still uses the old version.<button class="btn" style="margin-top:8px" data-act="updcourse">Update from course</button></div>' : "") +
+      '<button class="btn" style="margin-top:10px" data-act="go" data-v="courses">Manage courses ›</button>' +
+      '<label class="f" style="margin-top:12px">Tee</label><select data-k="tee">' +
+      S.course.tees.map(function (t) { return '<option value="' + esc(t.name) + '"' + (S.tee === t.name ? " selected" : "") + ">" + esc(t.name + (t.yards ? " · " + t.yards + " yds" : "") + " · " + t.rating + " / " + t.slope + (t.par ? " · par " + t.par : "")) + "</option>"; }).join("") +
       '<option value="Custom"' + (S.tee === "Custom" ? " selected" : "") + ">Custom rating / slope</option></select>" +
       '<div class="grid3" style="margin-top:10px">' + txt("Slope", "slope", S.slope, "", "decimal") + txt("Rating", "rating", S.rating, "", "decimal") + txt("Allowance %", "allowance", S.allowance, "", "decimal") + "</div>" +
       sw("Give handicap strokes", "useHcp", S.useHcp) + '<div id="hcp">' + hcpTable(calc) + "</div>" +
@@ -664,8 +883,7 @@ if (typeof module !== "undefined") module.exports = MP;
     if (S.birdOn) h += '<div class="grid2">' + txt("$ per birdie", "birdAmt", S.birdAmt, "", "decimal") + "<div></div></div>" + sw("Count net birdies instead of gross", "birdNet", S.birdNet) +
       '<p class="sub small">Birdie or better pays the maker from every other player. An eagle counts double. Off by default: net birdies.</p>';
     h += "</div>";
-    h += '<details class="card"><summary>Par &amp; hole handicaps</summary><div class="pg"><b class="sub small">Hole</b><b class="sub small">Par</b><b class="sub small">HCP</b>' +
-      MP.HOLES.map(function (i) { return "<b>" + (i + 1) + '</b><input type="text" inputmode="numeric" data-k="par" data-i="' + i + '" value="' + esc(S.par[i]) + '"><input type="text" inputmode="numeric" data-k="si" data-i="' + i + '" value="' + esc(S.si[i]) + '">'; }).join("") + "</div></details>";
+    h += '<p class="sub small" style="text-align:center">Par and hole handicaps come from the course. Edit them under Manage courses.</p>';
     h += idxMsg().replace('id="idxmsg"', 'id="idxmsg2"') + '<button class="btn pri" data-act="go" data-v="hole">Start scoring ›</button><div style="height:10px"></div>' +
       '<button class="btn dng" data-act="newround">New round (clear scores)</button><div style="height:10px"></div>' +
       '<button class="btn" data-act="sample">Load sample wheel round</button>' +
@@ -738,7 +956,7 @@ if (typeof module !== "undefined") module.exports = MP;
     function range(k) { return SUM[k]; }
     function parSum(a, b) { var t = 0; for (var i = a; i <= b; i++) t += Number(S.par[i]) || 0; return t; }
     var n = cols.length;
-    var o = "<h1>📋 Scorecard</h1>" + seg("cardView", [["front", "Front 9"], ["back", "Back 9"], ["all", "All 18"]], view);
+    var o = "<h1>📋 Scorecard</h1>" + courseLine() + seg("cardView", [["front", "Front 9"], ["back", "Back 9"], ["all", "All 18"]], view);
     o += '<div class="scw" style="margin-top:10px"><table class="scd">';
     o += '<tr class="hd"><th class="s" style="background:var(--soft)">Hole</th>' + cols.map(function (c) {
       return c.t === "h" ? '<th><button class="hb" data-act="edit" data-v="' + c.h + '" aria-label="Edit hole ' + (c.h + 1) + '">' + (c.h + 1) + "</button></th>" : '<th class="sum">' + range(c.k)[2] + "</th>";
@@ -810,7 +1028,7 @@ if (typeof module !== "undefined") module.exports = MP;
   function viewResults() {
     var calc = MP.compute(S), set = MP.settle(S, calc);
     var vi = Math.min(Number(S.view) || 0, Math.max(calc.results.length - 1, 0)), shown = calc.results[vi];
-    var o = "<h1>Results</h1>";
+    var o = "<h1>Results</h1>" + courseLine();
     if (calc.results.length > 1) o += seg("view", calc.results.map(function (r, k) { return [k, "vs " + sn(r.sides[1])]; }), vi);
     o += "<h2>Nassau · Bets" + (shown ? " · " + esc(sn(shown.sides[0])) + " vs " + esc(sn(shown.sides[1])) : "") + '</h2><div class="card">';
     if (shown) shown.bets.forEach(function (b) {
@@ -851,9 +1069,9 @@ if (typeof module !== "undefined") module.exports = MP;
   /* ---------- render ---------- */
   function render() {
     var scrollY = window.scrollY;
-    var v = S.screen === "hole" ? viewHole() : S.screen === "card" ? viewCard() : S.screen === "results" ? viewResults() : S.screen === "players" ? viewPlayers() : viewSetup();
+    var v = S.screen === "hole" ? viewHole() : S.screen === "card" ? viewCard() : S.screen === "results" ? viewResults() : S.screen === "players" ? viewPlayers() : S.screen === "courses" ? viewCourses() : S.screen === "courseedit" && ed ? viewCourseEdit() : viewSetup();
     var tabs = [["setup", "⚙️", "Setup"], ["hole", "⛳", "Hole " + (S.hole + 1)], ["card", "📋", "Card"], ["results", "💵", "Results"], ["players", "👥", "Players"]];
-    app.innerHTML = v + '<nav class="tabs">' + tabs.map(function (t) { return '<button data-act="go" data-v="' + t[0] + '" class="' + (S.screen === t[0] ? "on" : "") + '"><span>' + t[1] + "</span>" + t[2] + "</button>"; }).join("") + "</nav>";
+    app.innerHTML = v + '<nav class="tabs">' + tabs.map(function (t) { return '<button data-act="go" data-v="' + t[0] + '" class="' + ((S.screen === t[0] || (t[0] === "setup" && (S.screen === "courses" || S.screen === "courseedit"))) ? "on" : "") + '"><span>' + t[1] + "</span>" + t[2] + "</button>"; }).join("") + "</nav>";
     window.scrollTo(0, scrollY);
   }
   function go(screen) {
@@ -880,12 +1098,13 @@ if (typeof module !== "undefined") module.exports = MP;
   }
   function newRound() {
     if (!window.confirm("Start a new round? This clears all scores and handicap indexes (enter today's index for each player). Names and bet amounts are kept.")) return;
+    var liveNR = MP.findCourse(C, S.courseId); if (liveNR && MP.courseChanged(S, liveNR)) switchCourse(liveNR);
     S.scores = MP.emptyScores(); undo = []; S.indexes = ["", "", "", "", ""]; S.hole = 0; S.view = 0; S.screen = "setup"; tried = false; save(); render(); window.scrollTo(0, 0);
   }
   function sample() {
-    if (!window.confirm("Replace the current round with the sample wheel round (Al, Bob, Chris, Dan, Eddie)?")) return;
+    if (!window.confirm("Replace the current round with the sample wheel round (Al, Bob, Chris, Dan, Eddie) on Annandale?")) return;
     var d = MP.SAMPLE;
-    undo = []; S.format = "wheel"; S.names = d.names.slice(); S.indexes = d.indexes.slice(); S.scores = d.scores.map(function (r) { return r.map(String); });
+    undo = []; MP.applyCourse(S, MP.ANNANDALE, "Blue"); S.format = "wheel"; S.names = d.names.slice(); S.indexes = d.indexes.slice(); S.scores = d.scores.map(function (r) { return r.map(String); });
     S.tee = "Blue"; S.slope = "125"; S.rating = "70.4"; S.allowance = "90"; S.front = S.back = S.overall = "10"; S.autoPress = true; S.useHcp = true; S.view = 0; S.hole = 0; tried = false;
     save(); render();
   }
@@ -908,6 +1127,33 @@ if (typeof module !== "undefined") module.exports = MP;
     else if (a === "newround") newRound();
     else if (a === "sample") sample();
     else if (a === "undo") doUndo();
+    else if (a === "updcourse") { var lv = MP.findCourse(C, S.courseId); if (lv) switchCourse(lv); }
+    else if (a === "usecourse") { var uc = MP.findCourse(C, v); if (uc && (uc.id === S.courseId && !MP.courseChanged(S, uc) || confirmSwitch(uc))) { switchCourse(uc); go("setup"); } }
+    else if (a === "newcourse") { ed = blankEd(); edErr = []; go("courseedit"); }
+    else if (a === "editcourse") { var ec1 = MP.findCourse(C, v); if (ec1) { ed = edFrom(ec1, false); edErr = []; go("courseedit"); } }
+    else if (a === "dupcourse") { var dc = MP.findCourse(C, v); if (dc) { ed = edFrom(dc, true, MP.uniqueCourseName(C, dc.name + " (copy)")); edErr = []; go("courseedit"); } }
+    else if (a === "delcourse") { var xc = MP.findCourse(C, v); if (xc && window.confirm("Delete " + xc.name + "? Rounds already using it keep their own copy.")) { C = C.filter(function (c) { return c.id !== v; }); MP.saveCourses(localStorage, C); if (exportId === v) exportId = null; render(); } }
+    else if (a === "expcourse") { exportId = v; render(); window.scrollTo(0, 0); }
+    else if (a === "closeexp") { exportId = null; render(); }
+    else if (a === "copyexp") { var ta = document.getElementById("exptxt"); var done = function () { showToast([{ type: "info", text: "Course text copied" }]); }; ta.select(); ta.setSelectionRange(0, 99999);
+      var fb = function () { try { document.execCommand("copy"); done(); } catch (e) {} }; if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(ta.value).then(done, fb); else fb(); }
+    else if (a === "shareexp") { var sc = MP.findCourse(C, exportId); if (sc && navigator.share) navigator.share({ title: sc.name + " (Match Play course)", text: MP.exportCourse(sc) }).catch(function () {}); }
+    else if (a === "importcourse") {
+      var r = MP.importCourse(impText);
+      if (!r.ok) impMsg = { ok: false, errors: r.errors };
+      else { r.course.name = MP.uniqueCourseName(C, r.course.name); r.course.id = MP.newCourseId(); C.push(r.course); MP.saveCourses(localStorage, C); impText = ""; impMsg = { ok: true, text: "Imported " + r.course.name + ". Tap Use for this round to play it." }; }
+      render();
+    }
+    else if (a === "canceled") { ed = null; edErr = []; go("courses"); }
+    else if (a === "addtee") { if (ed.tees.length < 12) { ed.tees.push({ name: "", rating: "", slope: "", par: "", yards: "" }); render(); } }
+    else if (a === "rmtee") { if (ed.tees.length > 1) { ed.tees.splice(Number(v), 1); render(); } }
+    else if (a === "savecourse") {
+      var res = MP.checkCourse(edRaw());
+      if (!res.ok) { edErr = res.errors; render(); window.scrollTo(0, 0); return; }
+      var cc = res.course;
+      if (ed.id) { cc.id = ed.id; C = C.map(function (c) { return c.id === ed.id ? cc : c; }); } else { cc.id = MP.newCourseId(); cc.name = MP.uniqueCourseName(C, cc.name); C.push(cc); }
+      MP.saveCourses(localStorage, C); ed = null; edErr = []; go("courses");
+    }
     else if (a === "edit") { S.hole = Number(v); go("hole"); }
     else if (a === "cardView" || a === "skinMode" || a === "skinLeft") { S[a] = v; save(); render(); }
     else if (a === "plus") {
@@ -931,12 +1177,16 @@ if (typeof module !== "undefined") module.exports = MP;
   app.addEventListener("input", function (e) {
     var el = e.target, k = el.getAttribute("data-k"); if (!k || k === "score") return;
     if (k === "rname" || k === "newname") return;
+    if (k === "importtxt") { impText = el.value; return; }
+    if (k === "edname") { ed.name = el.value; return; }
+    if (k === "edloc") { ed.location = el.value; return; }
+    if (k === "edtee") { ed.tees[Number(el.getAttribute("data-i"))][el.getAttribute("data-f")] = el.value; return; }
     if (el.type === "checkbox") return;
     if (el.tagName === "SELECT") return;
     var i = el.getAttribute("data-i");
     if (i !== null) S[k][Number(i)] = el.value; else S[k] = el.value;
     if (k === "names") { var ps = app.querySelector('select[data-k="pick"][data-i="' + i + '"]'); if (ps) { var key = MP.normName(el.value); ps.value = MP.rosterFind(R, el.value) && !ps.querySelector('option[value="' + key.replace(/"/g, "&quot;") + '"][disabled]') ? key : ""; } }
-    if (k === "slope" || k === "rating") { S.tee = "Custom"; var sel = app.querySelector('select[data-k="tee"]'); if (sel) sel.value = "Custom"; }
+    if (k === "slope" || k === "rating") { S.tee = "Custom"; S.teePar = ""; var sel = app.querySelector('select[data-k="tee"]'); if (sel) sel.value = "Custom"; }
     save();
     if (k === "indexes") {
       var pl = el.parentNode.querySelector(".plus"); if (pl) pl.classList.toggle("on", el.value.trim().charAt(0) === "+");
@@ -949,6 +1199,10 @@ if (typeof module !== "undefined") module.exports = MP;
   });
   app.addEventListener("change", function (e) {
     var el = e.target, k = el.getAttribute("data-k"); if (!k) return;
+    if (k === "importtxt" || k === "edname" || k === "edloc" || k === "edtee") return;
+    if (k === "edpar") { ed.par[Number(el.getAttribute("data-i"))] = Number(el.value); render(); return; }
+    if (k === "edsi") { ed.si[Number(el.getAttribute("data-i"))] = Number(el.value); render(); return; }
+    if (k === "course") { var nc = MP.findCourse(C, el.value); if (nc && nc.id !== S.courseId && confirmSwitch(nc)) switchCourse(nc); else render(); return; }
     if (k === "pick") {
       var pi = Number(el.getAttribute("data-i")), pe = el.value ? MP.rosterFind(R, el.value) : null;
       if (pe) { if (MP.normName(S.names[pi]) !== MP.normName(pe.name)) S.indexes[pi] = ""; S.names[pi] = pe.name; save(); syncRoster(); render(); }
@@ -965,13 +1219,12 @@ if (typeof module !== "undefined") module.exports = MP;
     if (k === "score") { var v = el.value.trim(); var n = Number(v); setScore(Number(el.getAttribute("data-p")), v === "" || isNaN(n) ? "" : String(Math.max(1, Math.min(20, Math.round(n))))); }
     else if (el.type === "checkbox") { S[k] = el.checked; save(); render(); }
     else if (k === "tee") {
-      S.tee = el.value; var t = MP.TEES.filter(function (x) { return x.name === el.value; })[0];
-      if (t) { S.slope = t.slope; S.rating = t.rating; }
+      if (el.value === "Custom") { S.tee = "Custom"; S.teePar = ""; } else MP.applyTee(S, el.value);
       save(); render();
     }
   });
 
-  load(); save(); R = MP.loadRoster(localStorage); render();
+  C = MP.loadCourses(localStorage); load(); save(); R = MP.loadRoster(localStorage); render();
   if ("serviceWorker" in navigator && /^https?:/.test(location.protocol)) navigator.serviceWorker.register("sw.js").catch(function () {});
 })();
 </script>
