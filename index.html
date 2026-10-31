@@ -149,6 +149,9 @@ select.bad{border-color:var(--red);border-width:2px;background:var(--warn)}
 .ixbar .btn{width:auto;min-height:44px;padding:0 16px;flex:none}
 .pr .ix{position:relative}
 .pr .ix input[type=text]{padding-right:34px}
+.tp{margin-top:5px;min-height:34px;padding:0 10px;font:inherit;font-size:14px;font-weight:600;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--sub)}
+.tp.on{background:var(--warn);color:var(--text);border-color:var(--text)}
+.snk .wp .btn{min-height:44px}
 .wp{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}
 .wp .btn{min-height:48px;padding:0 6px;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mini{position:absolute;right:5px;top:8px;width:28px;height:28px;border:1px solid var(--line);background:var(--soft);color:var(--text);border-radius:8px;font-size:11px;font-weight:700;padding:0}
@@ -184,6 +187,7 @@ var MP = (function () {
 
   var GAMES = ["nassau", "skins", "vegas", "wolf"];
   function emptyWolf() { return HOLES.map(function () { return ""; }); } /* per-hole wolf choice: "" none, "L" lone, "B" blind, "0".."4" partner (player index) */
+  function emptyHoleStrs() { return HOLES.map(function () { return ""; }); } /* Snake: putts[h] = digits of the players who 3-putted on hole h ("02" = slots 1 and 3); snakeLast[h] = slot who 3-putted last when several did */
   function emptyScores() { return [0, 1, 2, 3, 4].map(function () { return HOLES.map(function () { return ""; }); }); }
 
   function defaultState() {
@@ -205,6 +209,7 @@ var MP = (function () {
       vegasAmt: "1", vegasMode: "net", vegasFlip: false,
       wolfN: 4, wolfAmt: "2", wolfMode: "net", wolfLone: "2", wolfBlindOn: false, wolfBlind: "3", wolfOrder: [0, 1, 2, 3, 4], wolf: emptyWolf(),
       birdOn: false, birdAmt: "5", birdNet: false,
+      snakeOn: false, snakeAmt: "1", putts: emptyHoleStrs(), snakeLast: emptyHoleStrs(),
       cardView: "front",
       si: DEFAULT_SI.map(String),
       par: DEFAULT_PAR.map(String),
@@ -288,6 +293,12 @@ var MP = (function () {
     if (!okOrder) state.wolfOrder = [0, 1, 2, 3, 4];
     if (!Array.isArray(state.wolf) || state.wolf.length !== 18) state.wolf = emptyWolf();
     state.wolf = state.wolf.map(function (x) { x = String(x == null ? "" : x); return x === "" || x === "L" || x === "B" || /^[0-4]$/.test(x) ? x : ""; });
+    state.snakeOn = state.snakeOn === true;
+    if (!(Number(state.snakeAmt) >= 0) || String(state.snakeAmt).trim() === "") state.snakeAmt = d.snakeAmt;
+    if (!Array.isArray(state.putts) || state.putts.length !== 18) state.putts = emptyHoleStrs();
+    state.putts = state.putts.map(function (x) { x = String(x == null ? "" : x).replace(/[^0-4]/g, ""); return x.split("").filter(function (c, i, a) { return a.indexOf(c) === i; }).sort().join(""); });
+    if (!Array.isArray(state.snakeLast) || state.snakeLast.length !== 18) state.snakeLast = emptyHoleStrs();
+    state.snakeLast = state.snakeLast.map(function (x, h) { x = String(x == null ? "" : x); return /^[0-4]$/.test(x) && state.putts[h].indexOf(x) >= 0 && state.putts[h].length > 1 ? x : ""; });
     return state;
   }
   function nameOf(state, i) { var n = String(state.names[i] || "").trim(); return n ? n : "Player " + (i + 1); }
@@ -557,6 +568,46 @@ var MP = (function () {
     active.forEach(function (p) { active.forEach(function (q) { if (q !== p) { res.net[p] += res.count[p] * amt; res.net[q] -= res.count[p] * amt; } }); });
     return res;
   }
+
+  /* ---- Snake add-on (three-putt). A manual 3-putt mark per player per hole. The snake goes to whoever three-putted last.
+     Within a hole several players can have a mark; there's no order info, so the app asks "who three-putted last?" (snakeLast[h]).
+     Until that pick is made the hole is skipped and the snake stays with the previous holder. At the end the holder pays every other
+     active player a fixed amount (no doubling). Independent of the main game and of Birdies. ---- */
+  function snake(state, calc) {
+    var active = calc.active, n = active.length, amt = Number(state.snakeAmt) || 0;
+    var res = { amount: amt, holder: null, holes: [], count: zero5(), needPick: [], net: zero5(), moves: 0 };
+    var holder = null;
+    HOLES.forEach(function (h) {
+      var marks = active.filter(function (p) { return String(state.putts[h] || "").indexOf(String(p)) >= 0; });
+      var rec = { h: h, marks: marks, before: holder, holder: holder, needsPick: false, moved: false, last: null };
+      marks.forEach(function (p) { res.count[p]++; });
+      if (marks.length === 1) rec.last = marks[0];
+      else if (marks.length > 1) {
+        var pk = String(state.snakeLast[h] == null ? "" : state.snakeLast[h]);
+        if (/^[0-4]$/.test(pk) && marks.indexOf(Number(pk)) >= 0) rec.last = Number(pk);
+        else { rec.needsPick = true; res.needPick.push(h); }
+      }
+      if (rec.last !== null) { rec.holder = rec.last; rec.moved = rec.last !== holder; if (rec.moved) res.moves++; holder = rec.last; }
+      res.holes.push(rec);
+    });
+    res.holder = holder;
+    if (holder !== null && n > 1) active.forEach(function (p) { if (p !== holder) { res.net[holder] -= amt; res.net[p] += amt; } });
+    res.net = res.net.map(cents);
+    return res;
+  }
+  /* Toggle a player's 3-putt mark on a hole. Drops a stale "last" pick. */
+  function roundHasSnake(state) { return (state.putts || []).some(function (x) { return String(x) !== ""; }); }
+  function togglePutt(state, p, h) {
+    var set = String(state.putts[h] || "").split("").filter(Boolean), i = set.indexOf(String(p));
+    if (i >= 0) set.splice(i, 1); else set.push(String(p));
+    state.putts[h] = set.sort().join("");
+    if (set.length < 2 || set.indexOf(String(state.snakeLast[h])) < 0) state.snakeLast[h] = "";
+  }
+  /* Who three-putted last on a hole (tap again to clear). */
+  function setSnakeLast(state, h, p) {
+    var cur = String(state.snakeLast[h] || "");
+    state.snakeLast[h] = cur === String(p) ? "" : (String(state.putts[h] || "").indexOf(String(p)) >= 0 && String(state.putts[h]).length > 1 ? String(p) : cur);
+  }
   /* ---- Las Vegas (4 players, slots 1&2 vs 3&4) ---- */
   function vegasNumber(s1, s2, flip) {
     var a = Math.min(s1, s2), b = Math.max(s1, s2);
@@ -630,23 +681,24 @@ var MP = (function () {
     return res;
   }
 
-  /* The selected main game plus the Birdies add-on, summed. Only the chosen game is calculated; the others come back null / zero. */
+  /* The selected main game plus the Birdies and Snake add-ons, summed. Only the chosen game is calculated; the others come back null / zero. */
   function settleAll(state, calc) {
     var g = GAMES.indexOf(state.game) >= 0 ? state.game : "nassau";
     var nas = g === "nassau" ? settle(state, calc) : null, sk = g === "skins" ? skins(state, calc) : null, vg = g === "vegas" ? vegas(state, calc) : null, wf = g === "wolf" ? wolfGame(state, calc) : null;
     var bd = birdies(state, calc), z = zero5();
     var main = g === "nassau" ? nas.net : g === "skins" ? sk.net : g === "vegas" ? vg.net : wf.net;
-    var bdN = state.birdOn ? bd.net : z;
-    return { game: g, nassau: nas, skins: sk, vegas: vg, wolf: wf, birdies: bd, mainNet: main, birdNet: bdN,
+    var bdN = state.birdOn ? bd.net : z, snk = state.snakeOn ? snake(state, calc) : null, snN = snk ? snk.net : z;
+    return { game: g, nassau: nas, skins: sk, vegas: vg, wolf: wf, birdies: bd, snake: snk, mainNet: main, birdNet: bdN, snakeNet: snN,
       nassauNet: g === "nassau" ? main : z, skinNet: g === "skins" ? main : z, vegasNet: g === "vegas" ? main : z, wolfNet: g === "wolf" ? main : z,
       pending: nas ? nas.pending : z,
-      total: [0, 1, 2, 3, 4].map(function (p) { return cents(main[p] + bdN[p]); }) };
+      total: [0, 1, 2, 3, 4].map(function (p) { return cents(main[p] + bdN[p] + snN[p]); }) };
   }
 
   /* ---- Undo (single-cell entries, multi-level) ---- */
   function undoPush(stack, state, p, h) { stack.push({ p: p, h: h, prev: state.scores[p][h] }); if (stack.length > 100) stack.shift(); return stack; }
   function undoPushWolf(stack, state, h) { stack.push({ k: "wolf", h: h, prev: state.wolf[h] }); if (stack.length > 100) stack.shift(); return stack; }
-  function undoPop(stack, state) { var e = stack.pop(); if (!e) return null; if (e.k === "wolf") state.wolf[e.h] = e.prev; else state.scores[e.p][e.h] = e.prev; return e; }
+  function undoPushSnake(stack, state, h) { stack.push({ k: "snake", h: h, prev: state.putts[h], prevLast: state.snakeLast[h] }); if (stack.length > 100) stack.shift(); return stack; }
+  function undoPop(stack, state) { var e = stack.pop(); if (!e) return null; if (e.k === "wolf") state.wolf[e.h] = e.prev; else if (e.k === "snake") { state.putts[e.h] = e.prev; state.snakeLast[e.h] = e.prevLast; } else state.scores[e.p][e.h] = e.prev; return e; }
 
   /* ---- Alert events: what changed between two states (call with a clone from before the entry) ---- */
   function betTitle(b) {
@@ -719,6 +771,14 @@ var MP = (function () {
           var before = 0; ba.byHole[h].forEach(function (y) { if (y.p === x.p) before = y.n; });
           if (x.n > before) ev.push({ type: "birdie", hole: h, text: (x.n === 2 ? "Eagle" : "Birdie") + " for " + nameOf(nextS, x.p) + " on #" + (h + 1) });
         });
+      });
+    }
+    if (nextS.snakeOn) {
+      var sa = snake(prevS, ca), sb = snake(nextS, cb), sk2 = function (r) { return [r.holder, r.needsPick, r.moved, r.marks.join("")].join("|"); };
+      sb.holes.forEach(function (r, h) {
+        var q = sa.holes[h]; if (sk2(q) === sk2(r) || !r.marks.length) return;
+        if (r.needsPick) ev.push({ type: "snake", hole: h, text: "Snake #" + (h + 1) + ": " + r.marks.map(function (p) { return firstName(nextS, p); }).join(" & ") + " all three-putted. Who was last? (snake stays put until you pick)" });
+        else if (r.moved) ev.push({ type: "snake", hole: h, text: r.before === null ? "Snake goes to " + firstName(nextS, r.holder) + " on #" + (h + 1) : "Snake moves to " + firstName(nextS, r.holder) + " on #" + (h + 1) });
       });
     }
     return ev;
@@ -1009,12 +1069,12 @@ var MP = (function () {
      Bet amounts, course, tee and settings stay; the saved roster/favorites and Players-tab overrides are separate stores and untouched.
      Returns true if there was anything to lose (a name, an index or a score). */
   function roundHasContent(state) {
-    return roundHasScores(state) || (state.wolf || []).some(function (x) { return String(x) !== ""; }) || state.names.some(function (n) { return String(n).trim() !== ""; }) || state.indexes.some(function (x) { return String(x).trim() !== ""; });
+    return roundHasScores(state) || (state.wolf || []).some(function (x) { return String(x) !== ""; }) || (state.putts || []).some(function (x) { return String(x) !== ""; }) || state.names.some(function (n) { return String(n).trim() !== ""; }) || state.indexes.some(function (x) { return String(x).trim() !== ""; });
   }
   function clearPlayers(state) {
     var had = roundHasContent(state);
     state.names = ["", "", "", "", ""]; state.indexes = ["", "", "", "", ""]; state.idxSrc = [null, null, null, null, null]; state.idxOver = [null, null, null, null, null];
-    state.scores = emptyScores(); state.wolf = emptyWolf(); state.hole = 0; state.view = 0; state.cardView = "front";
+    state.scores = emptyScores(); state.wolf = emptyWolf(); state.putts = emptyHoleStrs(); state.snakeLast = emptyHoleStrs(); state.hole = 0; state.view = 0; state.cardView = "front";
     return had;
   }
 
@@ -1034,7 +1094,7 @@ var MP = (function () {
     COURSE_FORMAT: COURSE_FORMAT, COURSES_KEY: COURSES_KEY, ANNANDALE: ANNANDALE, checkCourse: checkCourse, exportCourse: exportCourse, importCourse: importCourse, snapshotOf: snapshotOf,
     newCourseId: newCourseId, loadCourses: loadCourses, saveCourses: saveCourses, allCourses: allCourses, sortCourses: sortCourses, findCourse: findCourse, uniqueCourseName: uniqueCourseName,
     applyTee: applyTee, applyCourse: applyCourse, courseChanged: courseChanged,
-    skins: skins, birdies: birdies, vegas: vegas, vegasNumber: vegasNumber, wolfGame: wolfGame, wolfOf: wolfOf, wolfCount: wolfCount, wolfOrderOf: wolfOrderOf, emptyWolf: emptyWolf, normalizeGame: normalizeGame, GAMES: GAMES, firstName: firstName, teamLabel: teamLabel,
+    skins: skins, birdies: birdies, vegas: vegas, vegasNumber: vegasNumber, wolfGame: wolfGame, snake: snake, roundHasSnake: roundHasSnake, togglePutt: togglePutt, setSnakeLast: setSnakeLast, emptyHoleStrs: emptyHoleStrs, undoPushSnake: undoPushSnake, wolfOf: wolfOf, wolfCount: wolfCount, wolfOrderOf: wolfOrderOf, emptyWolf: emptyWolf, normalizeGame: normalizeGame, GAMES: GAMES, firstName: firstName, teamLabel: teamLabel,
     settleAll: settleAll, undoPush: undoPush, undoPushWolf: undoPushWolf, undoPop: undoPop, diffEvents: diffEvents, holeComplete: holeComplete,
     ROSTER_KEY: ROSTER_KEY, FAVORITES: FAVORITES, normName: normName, cleanName: cleanName, validIndex: validIndex, missingIndexes: missingIndexes, seedRoster: seedRoster, parseRoster: parseRoster,
     loadRoster: loadRoster, saveRoster: saveRoster, sortRoster: sortRoster, rosterFind: rosterFind, roundHasScores: roundHasScores, isSampleRound: isSampleRound, rosterAutoSave: rosterAutoSave,
@@ -1395,6 +1455,9 @@ if (typeof module !== "undefined") module.exports = MP;
     h += "<h2>Add-on bet (optional)</h2><div class=\"card\">" + sw("Birdies (on top of " + { nassau: "Nassau", skins: "Skins", vegas: "Las Vegas", wolf: "Wolf" }[S.game] + ")", "birdOn", S.birdOn);
     if (S.birdOn) h += '<div class="grid2">' + txt("$ per birdie", "birdAmt", S.birdAmt, "", "decimal") + "<div></div></div>" + sw("Count net birdies instead of gross", "birdNet", S.birdNet) +
       '<p class="sub small">Birdie or better pays the maker from every other player. An eagle counts double. Off by default: net birdies.</p>';
+    h += sw("Snake (three-putt)", "snakeOn", S.snakeOn);
+    if (S.snakeOn) h += '<div class="grid2">' + txt("$ per player", "snakeAmt", S.snakeAmt, "", "decimal") + "<div></div></div>" +
+      '<p class="sub small">Default is $1 per player; change it any time. Mark a 3-putt (or worse) per player on the Hole screen. The snake goes to whoever three-putted last; if several players three-putt on one hole you tap who was last. At the end the holder pays this fixed amount to every other player (no doubling). Nobody three-putted: no payout. Works with any game and 2 to 5 players.</p>';
     h += "</div>";
     h += '<p class="sub small" style="text-align:center">Par and hole handicaps come from the course. Edit them under Manage courses.</p>';
     h += idxMsg().replace('id="idxmsg"', 'id="idxmsg2"') + '<button class="btn pri" data-act="go" data-v="hole">Start scoring ›</button><div style="height:10px"></div>' +
@@ -1452,6 +1515,15 @@ if (typeof module !== "undefined") module.exports = MP;
     var bt = calc.active.filter(function (p) { return bd.count[p]; }).map(function (p) { return esc(lab(p)) + " " + bd.count[p]; }).join(", ");
     return '<div class="card"><b>Birdies add-on · hole ' + (h + 1) + '</b><div class="small" style="margin-top:4px">' + (S.birdNet ? "(net) " : "") + (here || "none on this hole") + (bt ? ' <span class="sub">So far: ' + bt + ".</span>" : "") + "</div></div>";
   }
+  function snakeCard(calc, h) {
+    var sk = MP.snake(S, calc), r = sk.holes[h], cur = sk.holder, o = '<div class="card snk"><b>🐍 Snake: ' + (cur === null ? '<span class="sub">nobody yet</span>' : esc(lab(cur))) + "</b>";
+    o += '<div class="small sub" style="margin-top:4px">' + MP.money(sk.amount) + " from the holder to each other player at the end. Hole " + (h + 1) + ": " + (r.marks.length ? r.marks.map(function (p) { return esc(lab(p)); }).join(", ") + " three-putted" : "no 3-putts") + ".</div>";
+    if (r.needsPick) o += '<div class="msg bad" style="margin-top:8px"><b>Who three-putted last?</b> Tap one. Until then the snake stays with ' + (r.before === null ? "nobody" : esc(lab(r.before))) + '.</div><div class="wp" style="grid-template-columns:repeat(' + Math.min(r.marks.length, 3) + ',1fr)">' +
+      r.marks.map(function (p) { return '<button class="btn" data-act="snakelast" data-p="' + p + '">' + esc(lab(p)) + "</button>"; }).join("") + "</div>";
+    else if (r.marks.length > 1) o += '<div class="small" style="margin-top:6px">Last to three-putt: <b>' + esc(lab(r.last)) + '</b> <span class="sub">(tap a name to change)</span></div><div class="wp" style="grid-template-columns:repeat(' + Math.min(r.marks.length, 3) + ',1fr)">' +
+      r.marks.map(function (p) { return '<button class="btn' + (p === r.last ? " pri" : "") + '" data-act="snakelast" data-p="' + p + '">' + esc(lab(p)) + "</button>"; }).join("") + "</div>";
+    return o + "</div>";
+  }
   /* ---------- hole screen ---------- */
   function filled(p, h) { var s = S.scores[p][h]; return String(s).trim() !== "" && !isNaN(Number(s)); }
   function viewHole() {
@@ -1463,17 +1535,20 @@ if (typeof module !== "undefined") module.exports = MP;
     }).join("") + "</div>";
     var lastU = undo.length ? undo[undo.length - 1] : null;
     if (lastU && lastU.k === "wolf") o += '<button class="btn undo" data-act="undo">↶ Undo: wolf pick #' + (lastU.h + 1) + "</button>";
+    else if (lastU && lastU.k === "snake") o += '<button class="btn undo" data-act="undo">↶ Undo: 3-putt #' + (lastU.h + 1) + "</button>";
     else o += '<button class="btn undo" data-act="undo"' + (lastU ? "" : " disabled") + ">↶ Undo" + (lastU ? ": " + esc(lab(lastU.p)) + " #" + (lastU.h + 1) + " " + (String(S.scores[lastU.p][lastU.h]).trim() === "" ? "–" : esc(S.scores[lastU.p][lastU.h])) + " → " + (String(lastU.prev).trim() === "" ? "–" : esc(lastU.prev)) : " last score") + '</button>';
     if (S.game === "wolf") o += wolfPick(calc, h);
     o += '<div class="card">' + calc.active.map(function (p) {
       var st = calc.strokes[p][h], has = filled(p, h), sc = Number(S.scores[p][h]);
       return '<div class="pl"><div class="nm"><b>' + esc(nm(p)) + '</b><span class="dots">' + (st ? "●".repeat(st) + "</span> <span class=\"sub small\">" + st + " stroke" + (st > 1 ? "s" : "") : "</span><span class=\"sub small\">no stroke") +
-        (has && st ? " · net " + (sc - st) : "") + '</span></div>' +
+        (has && st ? " · net " + (sc - st) : "") + '</span>' +
+        (S.snakeOn ? '<button class="tp' + (S.putts[h].indexOf(String(p)) >= 0 ? " on" : "") + '" data-act="putt" data-p="' + p + '" aria-pressed="' + (S.putts[h].indexOf(String(p)) >= 0) + '">🐍 3-putt' + (S.putts[h].indexOf(String(p)) >= 0 ? " ✓" : "") + "</button>" : "") + '</div>' +
         '<button class="step" data-act="dec" data-p="' + p + '" aria-label="minus">−</button>' +
         '<input class="scr" type="number" inputmode="numeric" data-k="score" data-p="' + p + '" value="' + (has ? esc(S.scores[p][h]) : "") + '" placeholder="–">' +
         '<button class="step" data-act="inc" data-p="' + p + '" aria-label="plus">+</button>' +
         '<button class="clr" data-act="clr" data-p="' + p + '" aria-label="clear">✕</button></div>';
     }).join("") + "</div>";
+    if (S.snakeOn) o += snakeCard(calc, h);
     if (S.game !== "nassau") o += gameCard(calc, h);
     if (S.birdOn) o += birdCard(calc, h);
     calc.results.forEach(function (r) {
@@ -1492,7 +1567,7 @@ if (typeof module !== "undefined") module.exports = MP;
   function sumOf(arr) { var v = arr.filter(function (x) { return String(x).trim() !== "" && !isNaN(Number(x)); }); return v.length ? v.reduce(function (a, x) { return a + Number(x); }, 0) : ""; }
   function viewCard() {
     var calc = MP.compute(S), view = S.cardView === "back" || S.cardView === "all" ? S.cardView : "front";
-    var sk = S.game === "skins" ? MP.skins(S, calc) : null, bd = S.birdOn ? MP.birdies(S, calc) : null;
+    var sk = S.game === "skins" ? MP.skins(S, calc) : null, bd = S.birdOn ? MP.birdies(S, calc) : null, snk = S.snakeOn ? MP.snake(S, calc) : null;
     var vg = S.game === "vegas" ? MP.vegas(S, calc) : null, wg = S.game === "wolf" ? MP.wolfGame(S, calc) : null;
     var cols = [];
     function holes(a, b) { for (var i = a; i <= b; i++) cols.push({ t: "h", h: i }); }
@@ -1593,8 +1668,19 @@ if (typeof module !== "undefined") module.exports = MP;
         return '<td class="sb">' + bd.byHole[c.h].map(function (x) { return esc(ini(x.p)) + (x.n === 2 ? "★" : ""); }).join(" ") + "</td>";
       }).join("") + "</tr>";
     }
+    if (snk) {
+      o += '<tr><td class="s"><b class="small">🐍 3-putt</b></td>' + cols.map(function (c) {
+        if (c.t === "s") { var a = range(c.k)[0], b2 = range(c.k)[1], t = 0; for (var i = a; i <= b2; i++) t += snk.holes[i].marks.length; return '<td class="sum sb">' + (t || "") + "</td>"; }
+        var r = snk.holes[c.h];
+        return '<td class="sb">' + r.marks.map(function (p) { return (p === r.last ? "<b>" : "") + esc(ini(p)) + (p === r.last ? "</b>" : ""); }).join(" ") + (r.needsPick ? ' <span class="neg">?</span>' : "") + "</td>";
+      }).join("") + "</tr>";
+      o += '<tr><td class="s"><b class="small">Holder</b></td>' + cols.map(function (c) {
+        if (c.t === "s") return '<td class="sum sb"></td>';
+        var r = snk.holes[c.h]; return '<td class="sb">' + (r.moved ? "🐍" + esc(ini(r.holder)) : "") + "</td>";
+      }).join("") + "</tr>";
+    }
     o += "</table></div>";
-    o += '<div class="legend">● = stroke on that hole · ○ birdie · ◎ eagle · □ bogey or worse · tap a hole number or a score to edit it · scroll sideways for more' + (bd ? " · ★ eagle (counts double)" : "") + (S.game === "nassau" ? ". Presses show as extra rows (F P1 = front press 1). A box like 3&amp;2 means that bet was decided." : S.game === "vegas" ? ". ↺ = number flipped by a birdie." : S.game === "wolf" ? ". ? = the wolf hasn't picked yet (hole not counted)." : ".") + "</div>";
+    o += '<div class="legend">' + (snk ? "🐍 = snake moved to that player (bold initials = last to 3-putt). " + (snk.holder === null ? "Nobody has the snake yet" : "Snake holder now: <b>" + esc(lab(snk.holder)) + "</b>") + ". " : "") + '● = stroke on that hole · ○ birdie · ◎ eagle · □ bogey or worse · tap a hole number or a score to edit it · scroll sideways for more' + (bd ? " · ★ eagle (counts double)" : "") + (S.game === "nassau" ? ". Presses show as extra rows (F P1 = front press 1). A box like 3&amp;2 means that bet was decided." : S.game === "vegas" ? ". ↺ = number flipped by a birdie." : S.game === "wolf" ? ". ? = the wolf hasn't picked yet (hole not counted)." : ".") + "</div>";
     o += '<button class="btn" data-act="go" data-v="results">See results and settle up</button>';
     return o;
   }
@@ -1606,18 +1692,27 @@ if (typeof module !== "undefined") module.exports = MP;
       return '<tr><td class="l"><b>' + esc(lab(p)) + "</b></td><td>" + bd.count[p] + '</td><td class="sub small">' + hs.join(", ") + '</td><td class="' + cls(all.birdNet[p]) + '">' + MP.signedMoney(all.birdNet[p]) + "</td></tr>";
     }).join("") + "</table></div>";
   }
-  /* Settlement table: the selected game's column, a Birdies column only when that add-on is on, and Total. */
+  function snakeTable(all) {
+    var sk = all.snake, ap = MP.activePlayers(S), none = sk.holder === null;
+    return '<div class="card"><b>🐍 Snake · ' + MP.money(sk.amount) + ' to each player</b><div style="margin:6px 0">' + (none ? "Nobody three-putted: no payout." : "Holder: <b>" + esc(lab(sk.holder)) + "</b> (last to three-putt" + (sk.holes.filter(function (r) { return r.last === sk.holder; }).length ? ", #" + (sk.holes.filter(function (r) { return r.last === sk.holder; }).pop().h + 1) : "") + ") pays " + MP.money(sk.amount) + " to each of the other " + (ap.length - 1) + ".") + "</div>" +
+      (sk.needPick.length ? '<div class="msg bad"><b>Not decided yet:</b> hole' + (sk.needPick.length > 1 ? "s " : " ") + sk.needPick.map(function (x) { return x + 1; }).join(", ") + " ha" + (sk.needPick.length > 1 ? "ve" : "s") + " several 3-putts with no &quot;who was last&quot; pick. Tap the hole and choose.</div>" : "") +
+      '<table><tr><th class="l">Player</th><th>3-putts</th><th>Holes</th><th>$</th></tr>' + ap.map(function (p) {
+        var hs = sk.holes.filter(function (r) { return r.marks.indexOf(p) >= 0; }).map(function (r) { return r.h + 1; });
+        return '<tr><td class="l"><b>' + esc(lab(p)) + (p === sk.holder ? " 🐍" : "") + "</b></td><td>" + sk.count[p] + '</td><td class="sub small">' + hs.join(", ") + '</td><td class="' + cls(all.snakeNet[p]) + '">' + MP.signedMoney(all.snakeNet[p]) + "</td></tr>";
+      }).join("") + "</table></div>";
+  }
+  /* Settlement table: the selected game's column, Birdies and Snake columns only when those add-ons are on, and Total. */
   function settleTable(all, calc, label, note) {
-    var bo = S.birdOn;
-    return '<div class="card"><b>Settle up</b><table><tr><th class="l">Player</th><th>' + esc(label) + "</th>" + (bo ? "<th>Birdies</th>" : "") + "<th>Total</th></tr>" + calc.active.map(function (p) {
-      return '<tr><td class="l"><b>' + esc(lab(p)) + '</b></td><td class="' + cls(all.mainNet[p]) + '">' + MP.signedMoney(all.mainNet[p]) + "</td>" + (bo ? '<td class="' + cls(all.birdNet[p]) + '">' + MP.signedMoney(all.birdNet[p]) + "</td>" : "") +
+    var bo = S.birdOn, so = S.snakeOn;
+    return '<div class="card"><b>Settle up</b><table><tr><th class="l">Player</th><th>' + esc(label) + "</th>" + (bo ? "<th>Birdies</th>" : "") + (so ? "<th>Snake</th>" : "") + "<th>Total</th></tr>" + calc.active.map(function (p) {
+      return '<tr><td class="l"><b>' + esc(lab(p)) + '</b></td><td class="' + cls(all.mainNet[p]) + '">' + MP.signedMoney(all.mainNet[p]) + "</td>" + (bo ? '<td class="' + cls(all.birdNet[p]) + '">' + MP.signedMoney(all.birdNet[p]) + "</td>" : "") + (so ? '<td class="' + cls(all.snakeNet[p]) + '">' + MP.signedMoney(all.snakeNet[p]) + "</td>" : "") +
         '<td class="' + cls(all.total[p]) + '"><b>' + MP.signedMoney(all.total[p]) + "</b></td></tr>";
     }).join("") + "</table>" + (note ? '<p class="sub small">' + note + "</p>" : "") + "</div>";
   }
   function viewResults() {
     var calc = MP.compute(S), set = MP.settle(S, calc), g = S.game, played = MP.roundHasScores(S);
     var all = MP.settleAll(S, calc), GN = { nassau: "Nassau", skins: "Skins", vegas: "Las Vegas", wolf: "Wolf" }[g];
-    var o = "<h1>Results</h1>" + courseLine() + '<div class="sub small" style="margin:-2px 2px 8px">Game: <b>' + GN + "</b>" + (S.birdOn ? " + Birdies add-on" : "") + "</div>";
+    var o = "<h1>Results</h1>" + courseLine() + '<div class="sub small" style="margin:-2px 2px 8px">Game: <b>' + GN + "</b>" + (S.birdOn ? " + Birdies add-on" : "") + (S.snakeOn ? " + Snake add-on" : "") + "</div>";
     if (g === "nassau") {
       var vi = Math.min(Number(S.view) || 0, Math.max(calc.results.length - 1, 0)), shown = calc.results[vi];
       if (calc.results.length > 1) o += seg("view", calc.results.map(function (r, k) { return [k, "vs " + sn(r.sides[1])]; }), vi);
@@ -1633,7 +1728,9 @@ if (typeof module !== "undefined") module.exports = MP;
           return '<tr><td class="l"><b>' + esc(nm(p)) + '</b></td><td class="' + cls(set.net[p]) + '">' + MP.signedMoney(set.net[p]) + '</td><td class="' + cls(set.pending[p]) + '">' + MP.signedMoney(set.pending[p]) + "</td></tr>";
         }).join("") + '</table><p class="sub small">Amounts are per player: winners each collect from losers each. "Still in play" is what you would win or lose on unfinished bets if they ended as they stand now.</p></div>';
       }
-      if (S.birdOn && played) o += "<h2>Birdies add-on</h2>" + birdTable(all, all.birdies) + settleTable(all, calc, "Nassau", 'Nassau and birdies are kept separate above. "Still in play" Nassau amounts are not included in these totals.');
+      if (S.birdOn && played) o += "<h2>Birdies add-on</h2>" + birdTable(all, all.birdies);
+      if (S.snakeOn && MP.roundHasSnake(S)) o += "<h2>Snake add-on</h2>" + snakeTable(all);
+      if ((S.birdOn || S.snakeOn) && (played || MP.roundHasSnake(S))) o += settleTable(all, calc, "Nassau", 'Nassau and add-ons are kept separate above. "Still in play" Nassau amounts are not included in these totals.');
     } else {
       if (g === "skins") {
         var sk = all.skins;
@@ -1667,8 +1764,9 @@ if (typeof module !== "undefined") module.exports = MP;
             }).join("") + "</table></div>";
         }
       }
-      if (played) {
+      if (played || (S.snakeOn && MP.roundHasSnake(S))) {
         if (S.birdOn) o += "<h2>Birdies add-on</h2>" + birdTable(all, all.birdies);
+        if (S.snakeOn) o += "<h2>Snake add-on</h2>" + snakeTable(all);
         o += "<h2>Settle up</h2>" + settleTable(all, calc, GN, "Amounts are in dollars; the totals add to zero.");
       }
     }
@@ -1711,20 +1809,32 @@ if (typeof module !== "undefined") module.exports = MP;
     S.wolf[h] = nv; save(); render();
     try { showToast(MP.diffEvents(prev, S)); } catch (e) {}
   }
+  function setPutt(p) {
+    var prev = JSON.parse(JSON.stringify(S));
+    MP.undoPushSnake(undo, S, S.hole);
+    MP.togglePutt(S, p, S.hole); save(); render();
+    try { showToast(MP.diffEvents(prev, S)); } catch (e) {}
+  }
+  function pickSnakeLast(p) {
+    var prev = JSON.parse(JSON.stringify(S));
+    MP.undoPushSnake(undo, S, S.hole);
+    MP.setSnakeLast(S, S.hole, p); save(); render();
+    try { showToast(MP.diffEvents(prev, S)); } catch (e) {}
+  }
   function doUndo() {
     var e = MP.undoPop(undo, S); if (!e) return;
     S.hole = e.h; save(); render();
-    showToast([{ type: "info", text: e.k === "wolf" ? "Undid the wolf pick on #" + (e.h + 1) : "Undid " + lab(e.p) + " on #" + (e.h + 1) }]);
+    showToast([{ type: "info", text: e.k === "wolf" ? "Undid the wolf pick on #" + (e.h + 1) : e.k === "snake" ? "Undid the 3-putt change on #" + (e.h + 1) : "Undid " + lab(e.p) + " on #" + (e.h + 1) }]);
   }
   function newRound() {
     if (!window.confirm("Start a new round? This clears all scores. Indexes are refreshed from the Players tab (blank if a player has none). Names and bet amounts are kept.")) return;
     var liveNR = findC(S.courseId); if (liveNR && MP.courseChanged(S, liveNR)) switchCourse(liveNR);
-    S.scores = MP.emptyScores(); S.wolf = MP.emptyWolf(); undo = []; S.indexes = ["", "", "", "", ""]; S.idxSrc = [null, null, null, null, null]; S.idxOver = [null, null, null, null, null]; applyAuto(); S.hole = 0; S.view = 0; S.screen = "setup"; tried = false; save(); render(); window.scrollTo(0, 0);
+    S.scores = MP.emptyScores(); S.wolf = MP.emptyWolf(); S.putts = MP.emptyHoleStrs(); S.snakeLast = MP.emptyHoleStrs(); undo = []; S.indexes = ["", "", "", "", ""]; S.idxSrc = [null, null, null, null, null]; S.idxOver = [null, null, null, null, null]; applyAuto(); S.hole = 0; S.view = 0; S.screen = "setup"; tried = false; save(); render(); window.scrollTo(0, 0);
   }
   function sample() {
     if (!window.confirm("Replace the current round with the sample wheel round (Al, Bob, Chris, Dan, Eddie) on Annandale?")) return;
     var d = MP.SAMPLE;
-    undo = []; MP.applyCourse(S, MP.ANNANDALE, "Blue"); S.game = "nassau"; S.wolf = MP.emptyWolf(); S.format = "wheel"; S.names = d.names.slice(); S.indexes = d.indexes.slice(); S.idxSrc = [null, null, null, null, null]; S.idxOver = [null, null, null, null, null]; S.scores = d.scores.map(function (r) { return r.map(String); });
+    undo = []; MP.applyCourse(S, MP.ANNANDALE, "Blue"); S.game = "nassau"; S.wolf = MP.emptyWolf(); S.putts = MP.emptyHoleStrs(); S.snakeLast = MP.emptyHoleStrs(); S.format = "wheel"; S.names = d.names.slice(); S.indexes = d.indexes.slice(); S.idxSrc = [null, null, null, null, null]; S.idxOver = [null, null, null, null, null]; S.scores = d.scores.map(function (r) { return r.map(String); });
     S.tee = "Blue"; S.slope = "125"; S.rating = "70.4"; S.allowance = "90"; S.front = S.back = S.overall = "10"; S.autoPress = true; S.useHcp = true; S.view = 0; S.hole = 0; tried = false;
     save(); render();
   }
@@ -1737,6 +1847,8 @@ if (typeof module !== "undefined") module.exports = MP;
     else if (a === "skinN") { S.skinN = Number(v); save(); render(); }
     else if (a === "wolfN") { S.wolfN = MP.wolfCount(v); save(); render(); }
     else if (a === "wolfpick") setWolf(S.hole, v);
+    else if (a === "putt") setPutt(p);
+    else if (a === "snakelast") pickSnakeLast(p);
     else if (a === "format") { S.format = v; S.allowance = v === "singles" ? "100" : "90"; S.view = 0; save(); render(); }
     else if (a === "view") { S.view = Number(v); save(); render(); }
     else if (a === "hole") { S.hole = Number(v); save(); render(); }
