@@ -86,11 +86,17 @@ summary{min-height:48px;display:flex;align-items:center;font-weight:600;cursor:p
 .pr{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--line)}
 .pr:last-child{border-bottom:0}
 .pr .nm{flex:1;min-width:0;font-size:18px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.pr input[type=text]{width:84px;flex:none;text-align:center}
+.pr input[type=text]{flex:1;min-width:0;font-weight:600}
 .star{width:48px;height:48px;border-radius:12px;border:1px solid var(--line);background:transparent;color:var(--sub);font-size:26px;line-height:1;flex:none;padding:0}
 .star.on{color:#d99a00;background:var(--soft)}
 .del{width:48px;height:48px;border-radius:12px;border:1px solid var(--line);background:transparent;color:var(--red);font-size:20px;flex:none;padding:0}
 .star:active,.del:active{opacity:.6}
+input.bad{border-color:var(--red);border-width:2px;background:var(--warn)}
+.msg.bad{border:2px solid var(--red);margin:10px 0}
+.idx{display:flex;gap:6px}
+.idx input{flex:1;min-width:0}
+.plus{width:48px;min-height:48px;border-radius:10px;border:1px solid var(--line);background:var(--soft);color:var(--text);font:inherit;font-size:24px;font-weight:700;flex:none;padding:0}
+.plus.on{background:var(--green);color:var(--greenfg);border-color:var(--green)}
 </style>
 </head>
 <body>
@@ -284,17 +290,17 @@ var MP = (function () {
 
   /* ---- Player roster (favorites + auto-saved players). Pure; storage is injected. Does not touch scoring. ---- */
   var ROSTER_KEY = "matchplay.golf.players.v1";
-  var FAVORITES = [
-    { name: "Jan Pieterse", index: "7.1" },
-    { name: "Phillip Hosp", index: "5.5" },
-    { name: "Elliott Neumayer", index: "8.0" },
-    { name: "Justin Mowery", index: "14.5" },
-    { name: "Joesph Viola", index: "17.0" }
-  ];
+  /* Names only: handicap indexes change daily, so they are never stored in the roster. */
+  var FAVORITES = ["Jan Pieterse", "Phillip Hosp", "Elliott Neumayer", "Justin Mowery", "Joesph Viola"];
   function normName(n) { return String(n == null ? "" : n).trim().replace(/\s+/g, " ").toLowerCase(); }
   function cleanName(n) { return String(n == null ? "" : n).trim().replace(/\s+/g, " "); }
   function validIndex(v) { return /^\+?\d{1,2}(\.\d+)?$/.test(String(v == null ? "" : v).trim()); }
-  function seedRoster() { return FAVORITES.map(function (f) { return { name: f.name, index: f.index, fav: true }; }); }
+  function seedRoster() { return FAVORITES.map(function (f) { return { name: f, fav: true }; }); }
+  /* Active players (for this format) whose index is blank/invalid. Only matters when handicap strokes are on. '+1.2' is valid. */
+  function missingIndexes(state) {
+    if (!state.useHcp) return [];
+    return activePlayers(state.format).filter(function (p) { return !validIndex(state.indexes[p]); });
+  }
   function parseRoster(raw) {
     if (!raw) return null;
     try {
@@ -304,15 +310,17 @@ var MP = (function () {
       o.forEach(function (x) {
         if (!x || typeof x.name !== "string") return;
         var k = normName(x.name); if (!k || seen[k]) return; seen[k] = 1;
-        out.push({ name: cleanName(x.name), index: x.index == null ? "" : String(x.index).trim(), fav: !!x.fav });
+        out.push({ name: cleanName(x.name), fav: !!x.fav });
       });
       return out;
     } catch (e) { return null; }
   }
   function loadRoster(storage) {
     var r = null;
-    try { r = parseRoster(storage.getItem(ROSTER_KEY)); } catch (e) {}
+    var raw = null;
+    try { raw = storage.getItem(ROSTER_KEY); r = parseRoster(raw); } catch (e) {}
     if (!r) { r = seedRoster(); saveRoster(storage, r); }
+    else if (raw !== JSON.stringify(r)) saveRoster(storage, r); /* migrate: drops any stored indexes */
     return r;
   }
   function saveRoster(storage, roster) { try { storage.setItem(ROSTER_KEY, JSON.stringify(roster)); } catch (e) {} }
@@ -336,23 +344,20 @@ var MP = (function () {
   function isSampleRound(state) {
     return SAMPLE.names.every(function (n, i) { return state.names[i] === n && String(state.indexes[i]).trim() === SAMPLE.indexes[i]; });
   }
-  /* Once at least one hole is scored: add unknown players, and update a known player's index if it was edited. */
+  /* Once at least one hole is scored: add unknown player names (names only, never indexes). */
   function rosterAutoSave(roster, state) {
-    var res = { roster: roster.map(function (x) { return { name: x.name, index: x.index, fav: x.fav }; }), changed: false, added: [], updated: [] };
+    var res = { roster: roster.map(function (x) { return { name: x.name, fav: x.fav }; }), changed: false, added: [] };
     if (!roundHasScores(state) || isSampleRound(state)) return res;
     var done = {};
     activePlayers(state.format).forEach(function (p) {
       var nm = cleanName(state.names[p]), k = normName(nm); if (!k || done[k]) return; done[k] = 1;
-      var idx = String(state.indexes[p] == null ? "" : state.indexes[p]).trim(), good = validIndex(idx);
-      var ex = rosterFind(res.roster, nm);
-      if (!ex) { res.roster.push({ name: nm, index: good ? idx : "", fav: false }); res.added.push(nm); res.changed = true; }
-      else if (good && ex.index !== idx) { ex.index = idx; res.updated.push(ex.name); res.changed = true; }
+      if (!rosterFind(res.roster, nm)) { res.roster.push({ name: nm, fav: false }); res.added.push(nm); res.changed = true; }
     });
     return res;
   }
 
   return {
-    ROSTER_KEY: ROSTER_KEY, FAVORITES: FAVORITES, normName: normName, cleanName: cleanName, validIndex: validIndex, seedRoster: seedRoster, parseRoster: parseRoster,
+    ROSTER_KEY: ROSTER_KEY, FAVORITES: FAVORITES, normName: normName, cleanName: cleanName, validIndex: validIndex, missingIndexes: missingIndexes, seedRoster: seedRoster, parseRoster: parseRoster,
     loadRoster: loadRoster, saveRoster: saveRoster, sortRoster: sortRoster, rosterFind: rosterFind, roundHasScores: roundHasScores, isSampleRound: isSampleRound, rosterAutoSave: rosterAutoSave,
     DEFAULT_SI: DEFAULT_SI, DEFAULT_PAR: DEFAULT_PAR, TEES: TEES, HOLES: HOLES, WHEEL_PAIRS: WHEEL_PAIRS, SAMPLE: SAMPLE,
     emptyScores: emptyScores, defaultState: defaultState, strokesOn: strokesOn, parseIndex: parseIndex, money: money, signedMoney: signedMoney,
@@ -369,6 +374,7 @@ if (typeof module !== "undefined") module.exports = MP;
   var KEY = "matchplay.golf.v1";
   var S = MP.defaultState();
   var R = [];
+  var tried = false; /* user tried to start without all indexes */
   var app = document.getElementById("app");
 
   /* ---------- persistence ---------- */
@@ -412,7 +418,7 @@ if (typeof module !== "undefined") module.exports = MP;
   function hcpTable(calc) {
     return '<table><tr><th class="l">Player</th><th>Index</th><th>Course</th><th>Playing</th><th>Strokes</th></tr>' +
       calc.active.map(function (p) {
-        return '<tr><td class="l">' + esc(nm(p)) + "</td><td>" + esc(String(S.indexes[p]).trim() || "0") + "</td><td>" + calc.courseH[p] + "</td><td>" + calc.playingH[p] + "</td><td><b>" + calc.diff[p] + "</b></td></tr>";
+        return '<tr><td class="l">' + esc(nm(p)) + "</td><td>" + esc(String(S.indexes[p]).trim() || "–") + "</td><td>" + calc.courseH[p] + "</td><td>" + calc.playingH[p] + "</td><td><b>" + calc.diff[p] + "</b></td></tr>";
       }).join("") + "</table>";
   }
   function playerLabel(p) {
@@ -420,13 +426,22 @@ if (typeof module !== "undefined") module.exports = MP;
     if (S.format === "bestball") return "Team " + (p < 2 ? "A" : "B") + ", player " + ((p % 2) + 1);
     return p < 2 ? "Wheel player " + (p + 1) : "Player " + (p + 1);
   }
+  function idxBad(p) { return S.useHcp && !MP.validIndex(S.indexes[p]); }
+  function idxField(p) {
+    var v = String(S.indexes[p] || "").trim(), bad = tried && idxBad(p);
+    return '<div><label class="f">Today\'s handicap index</label><div class="idx"><input type="text" inputmode="decimal" autocomplete="off" autocapitalize="off" spellcheck="false" data-k="indexes" data-i="' + p + '" value="' + esc(v) + '" placeholder="e.g. 12.4" class="' + (bad ? "bad" : "") + '" aria-label="Today\'s handicap index, player ' + (p + 1) + '">' +
+      '<button type="button" class="plus' + (v.charAt(0) === "+" ? " on" : "") + '" data-act="plus" data-p="' + p + '" aria-label="Toggle plus handicap" title="Plus handicap (better than scratch)">+</button></div></div>';
+  }
+  function idxMsg() {
+    return '<div class="msg bad" id="idxmsg"' + (tried && MP.missingIndexes(S).length ? "" : " hidden") + "><b>Enter today's index for each player.</b> Handicap indexes change daily, so they are not saved. Use a + for plus handicaps (e.g. +1.2).</div>";
+  }
   function pickSel(p, active) {
     var cur = MP.normName(S.names[p]), taken = {};
     active.forEach(function (q) { if (q !== p) taken[MP.normName(S.names[q])] = 1; });
     var sorted = MP.sortRoster(R);
     function opt(x) {
       var k = MP.normName(x.name);
-      return '<option value="' + esc(k) + '"' + (k === cur ? " selected" : "") + (taken[k] ? " disabled" : "") + ">" + (x.fav ? "★ " : "") + esc(x.name + (x.index ? " · " + x.index : "")) + "</option>";
+      return '<option value="' + esc(k) + '"' + (k === cur ? " selected" : "") + (taken[k] ? " disabled" : "") + ">" + (x.fav ? "★ " : "") + esc(x.name) + "</option>";
     }
     var fav = sorted.filter(function (x) { return x.fav; }), oth = sorted.filter(function (x) { return !x.fav; });
     return '<div class="pick"><select data-k="pick" data-i="' + p + '" aria-label="Pick a saved player"><option value="">Pick a saved player…</option>' +
@@ -435,16 +450,16 @@ if (typeof module !== "undefined") module.exports = MP;
   }
   function viewPlayers() {
     var h = "<h1>👥 Players</h1>";
-    h += '<p class="sub">Tap ☆ to make a favorite. Favorites are listed first when you pick players. Anyone who plays a round is saved here automatically.</p>';
+    h += '<p class="sub">Names only. Handicap indexes change daily, so you enter them each round. Tap ☆ to make a favorite; favorites are listed first when you pick players. Anyone who plays a round is saved here automatically.</p>';
     h += '<h2>Saved players (' + R.length + ")</h2>";
     if (!R.length) h += '<div class="msg">No saved players yet. Add one below, or play a round.</div>';
     else h += '<div class="card">' + MP.sortRoster(R).map(function (x) {
       var k = MP.normName(x.name);
       return '<div class="pr"><button class="star' + (x.fav ? " on" : "") + '" data-act="star" data-v="' + esc(k) + '" aria-label="' + (x.fav ? "Remove favorite" : "Make favorite") + '">' + (x.fav ? "★" : "☆") + "</button>" +
-        '<div class="nm">' + esc(x.name) + '</div><input type="text" inputmode="decimal" autocomplete="off" data-k="rindex" data-v="' + esc(k) + '" value="' + esc(x.index) + '" placeholder="Index" aria-label="Handicap index for ' + esc(x.name) + '">' +
+        '<input type="text" autocomplete="off" autocapitalize="words" spellcheck="false" data-k="rname" data-v="' + esc(k) + '" value="' + esc(x.name) + '" aria-label="Player name (tap to rename)">' +
         '<button class="del" data-act="delp" data-v="' + esc(k) + '" aria-label="Delete ' + esc(x.name) + '">🗑</button></div>';
     }).join("") + "</div>";
-    h += '<h2>Add a player</h2><div class="card"><div class="grid2">' + txt("Name", "newname", "", "Full name") + txt("Handicap index", "newidx", "", "12.4 or +1.2", "decimal") + '</div><div style="height:10px"></div><button class="btn pri" data-act="addp">Add player</button></div>';
+    h += '<h2>Add a player</h2><div class="card">' + txt("Name", "newname", "", "Full name") + '<div style="height:10px"></div><button class="btn pri" data-act="addp">Add player</button></div>';
     return h;
   }
   function viewSetup() {
@@ -452,10 +467,10 @@ if (typeof module !== "undefined") module.exports = MP;
     var h = "<h1>⛳ Match Play · Setup</h1>";
     h += '<h2>Format</h2>' + seg("format", [["singles", "One on one"], ["bestball", "2 vs 2"], ["wheel", "5-player wheel"]], S.format);
     if (S.format === "wheel") h += '<p class="sub">' + esc(sn([0, 1])) + " (the wheel) play three best-ball matches: vs " + MP.WHEEL_PAIRS.map(sn).join(", vs ") + ".</p>";
-    h += "<h2>Players</h2>";
+    h += "<h2>Players</h2>" + idxMsg();
     calc.active.forEach(function (p) {
       h += '<div class="card"><div class="sub" style="margin-bottom:6px">' + esc(playerLabel(p)) + "</div>" + pickSel(p, calc.active) + '<div class="grid2">' +
-        txt("Name", "names", S.names[p], "Player " + (p + 1), "", p) + txt("Handicap index", "indexes", S.indexes[p], "12.4 or +1.2", "", p) + "</div></div>";
+        txt("Name", "names", S.names[p], "Player " + (p + 1), "", p) + idxField(p) + "</div></div>";
     });
     h += "<h2>Course · Annandale GC</h2><div class=\"card\"><label class=\"f\">Men's tee</label><select data-k=\"tee\">" +
       MP.TEES.map(function (t) { return '<option value="' + esc(t.name) + '"' + (S.tee === t.name ? " selected" : "") + ">" + esc(t.name + " · " + t.yards + " yds · " + t.rating + " / " + t.slope) + "</option>"; }).join("") +
@@ -467,10 +482,10 @@ if (typeof module !== "undefined") module.exports = MP;
       sw("Automatic press when 2 down", "autoPress", S.autoPress) + '<p class="sub small">A press starts on the next hole and lasts to the end of that nine. Overall has no presses.</p></div>';
     h += '<details class="card"><summary>Par &amp; hole handicaps</summary><div class="pg"><b class="sub small">Hole</b><b class="sub small">Par</b><b class="sub small">HCP</b>' +
       MP.HOLES.map(function (i) { return "<b>" + (i + 1) + '</b><input type="text" inputmode="numeric" data-k="par" data-i="' + i + '" value="' + esc(S.par[i]) + '"><input type="text" inputmode="numeric" data-k="si" data-i="' + i + '" value="' + esc(S.si[i]) + '">'; }).join("") + "</div></details>";
-    h += '<button class="btn pri" data-act="go" data-v="hole">Start scoring ›</button><div style="height:10px"></div>' +
+    h += idxMsg().replace('id="idxmsg"', 'id="idxmsg2"') + '<button class="btn pri" data-act="go" data-v="hole">Start scoring ›</button><div style="height:10px"></div>' +
       '<button class="btn dng" data-act="newround">New round (clear scores)</button><div style="height:10px"></div>' +
       '<button class="btn" data-act="sample">Load sample wheel round</button>' +
-      '<p class="sub small" style="text-align:center">Everything saves automatically on this device.</p>';
+      '<p class="sub small" style="text-align:center">Round scores save automatically on this device. Handicap indexes are cleared for each new round.</p>';
     return h;
   }
 
@@ -542,17 +557,24 @@ if (typeof module !== "undefined") module.exports = MP;
     app.innerHTML = v + '<nav class="tabs">' + tabs.map(function (t) { return '<button data-act="go" data-v="' + t[0] + '" class="' + (S.screen === t[0] ? "on" : "") + '"><span>' + t[1] + "</span>" + t[2] + "</button>"; }).join("") + "</nav>";
     window.scrollTo(0, scrollY);
   }
-  function go(screen) { syncRoster(); S.screen = screen; save(); render(); window.scrollTo(0, 0); }
+  function go(screen) {
+    syncRoster();
+    if (screen === "hole" && MP.missingIndexes(S).length) {
+      tried = true; S.screen = "setup"; save(); render();
+      var bad = app.querySelector("input.bad"); if (bad) { bad.scrollIntoView({ block: "center" }); } else window.scrollTo(0, 0);
+      return;
+    }
+    tried = false; S.screen = screen; save(); render(); window.scrollTo(0, 0); }
   function setScore(p, v) { S.scores[p][S.hole] = v; save(); syncRoster(); render(); }
   function newRound() {
-    if (!window.confirm("Start a new round? This clears all scores but keeps names, handicap indexes, and bet amounts.")) return;
-    S.scores = MP.emptyScores(); S.hole = 0; S.view = 0; S.screen = "hole"; save(); render(); window.scrollTo(0, 0);
+    if (!window.confirm("Start a new round? This clears all scores and handicap indexes (enter today's index for each player). Names and bet amounts are kept.")) return;
+    S.scores = MP.emptyScores(); S.indexes = ["", "", "", "", ""]; S.hole = 0; S.view = 0; S.screen = "setup"; tried = false; save(); render(); window.scrollTo(0, 0);
   }
   function sample() {
     if (!window.confirm("Replace the current round with the sample wheel round (Al, Bob, Chris, Dan, Eddie)?")) return;
     var d = MP.SAMPLE;
     S.format = "wheel"; S.names = d.names.slice(); S.indexes = d.indexes.slice(); S.scores = d.scores.map(function (r) { return r.map(String); });
-    S.tee = "Blue"; S.slope = "125"; S.rating = "70.4"; S.allowance = "90"; S.front = S.back = S.overall = "10"; S.autoPress = true; S.useHcp = true; S.view = 0; S.hole = 0;
+    S.tee = "Blue"; S.slope = "125"; S.rating = "70.4"; S.allowance = "90"; S.front = S.back = S.overall = "10"; S.autoPress = true; S.useHcp = true; S.view = 0; S.hole = 0; tried = false;
     save(); render();
   }
 
@@ -573,29 +595,27 @@ if (typeof module !== "undefined") module.exports = MP;
     else if (a === "clr") setScore(p, "");
     else if (a === "newround") newRound();
     else if (a === "sample") sample();
+    else if (a === "plus") {
+      var pi2 = Number(el.getAttribute("data-p")), cv = String(S.indexes[pi2] || "").trim();
+      S.indexes[pi2] = cv.charAt(0) === "+" ? cv.slice(1) : "+" + cv; save(); render();
+      var f = app.querySelector('input[data-k="indexes"][data-i="' + pi2 + '"]'); if (f) f.focus();
+    }
     else if (a === "star") { var e1 = R.filter(function (x) { return MP.normName(x.name) === v; })[0]; if (e1) { e1.fav = !e1.fav; saveR(); render(); } }
     else if (a === "delp") {
       var e2 = R.filter(function (x) { return MP.normName(x.name) === v; })[0];
       if (e2 && window.confirm("Delete " + e2.name + " from saved players? Past rounds are not affected.")) { R = R.filter(function (x) { return x !== e2; }); saveR(); render(); }
     }
     else if (a === "addp") {
-      var nn = MP.cleanName((app.querySelector('input[data-k="newname"]') || {}).value), ni = String((app.querySelector('input[data-k="newidx"]') || {}).value || "").trim();
+      var nn = MP.cleanName((app.querySelector('input[data-k="newname"]') || {}).value);
       if (!nn) { window.alert("Enter a name first."); return; }
-      if (ni && !MP.validIndex(ni)) { window.alert("Handicap index looks wrong. Use a number like 12.4 or +1.2."); return; }
-      var ex = MP.rosterFind(R, nn);
-      if (ex) { if (ni) ex.index = ni; } else R.push({ name: nn, index: ni, fav: false });
+      if (!MP.rosterFind(R, nn)) R.push({ name: nn, fav: false });
       saveR(); render();
     }
   });
 
   app.addEventListener("input", function (e) {
     var el = e.target, k = el.getAttribute("data-k"); if (!k || k === "score") return;
-    if (k === "rindex") {
-      var e3 = R.filter(function (x) { return MP.normName(x.name) === el.getAttribute("data-v"); })[0];
-      if (e3) { e3.index = el.value.trim(); saveR(); }
-      return;
-    }
-    if (k === "newname" || k === "newidx") return;
+    if (k === "rname" || k === "newname") return;
     if (el.type === "checkbox") return;
     if (el.tagName === "SELECT") return;
     var i = el.getAttribute("data-i");
@@ -603,17 +623,30 @@ if (typeof module !== "undefined") module.exports = MP;
     if (k === "names") { var ps = app.querySelector('select[data-k="pick"][data-i="' + i + '"]'); if (ps) { var key = MP.normName(el.value); ps.value = MP.rosterFind(R, el.value) && !ps.querySelector('option[value="' + key.replace(/"/g, "&quot;") + '"][disabled]') ? key : ""; } }
     if (k === "slope" || k === "rating") { S.tee = "Custom"; var sel = app.querySelector('select[data-k="tee"]'); if (sel) sel.value = "Custom"; }
     save();
+    if (k === "indexes") {
+      var pl = el.parentNode.querySelector(".plus"); if (pl) pl.classList.toggle("on", el.value.trim().charAt(0) === "+");
+      if (tried) {
+        el.classList.toggle("bad", idxBad(Number(i)));
+        var left = MP.missingIndexes(S).length; ["idxmsg", "idxmsg2"].forEach(function (id) { var m = document.getElementById(id); if (m) m.hidden = !left; });
+      }
+    }
     var box = document.getElementById("hcp"); if (box) box.innerHTML = hcpTable(MP.compute(S));
   });
   app.addEventListener("change", function (e) {
     var el = e.target, k = el.getAttribute("data-k"); if (!k) return;
     if (k === "pick") {
       var pi = Number(el.getAttribute("data-i")), pe = el.value ? MP.rosterFind(R, el.value) : null;
-      if (pe) { S.names[pi] = pe.name; S.indexes[pi] = pe.index; save(); syncRoster(); render(); }
+      if (pe) { if (MP.normName(S.names[pi]) !== MP.normName(pe.name)) S.indexes[pi] = ""; S.names[pi] = pe.name; save(); syncRoster(); render(); }
       return;
     }
-    if (k === "rindex" || k === "newname" || k === "newidx") return;
-    if (k === "names" || k === "indexes") { syncRoster(); return; }
+    if (k === "rname") {
+      var key = el.getAttribute("data-v"), e4 = R.filter(function (x) { return MP.normName(x.name) === key; })[0], nn2 = MP.cleanName(el.value), clash = nn2 && MP.rosterFind(R, nn2);
+      if (e4 && nn2 && (!clash || clash === e4)) { e4.name = nn2; saveR(); }
+      else if (e4 && clash) window.alert("There is already a saved player named " + clash.name + ".");
+      render(); return;
+    }
+    if (k === "newname") return;
+    if (k === "names") { syncRoster(); return; }
     if (k === "score") { var v = el.value.trim(); var n = Number(v); setScore(Number(el.getAttribute("data-p")), v === "" || isNaN(n) ? "" : String(Math.max(1, Math.min(20, Math.round(n))))); }
     else if (el.type === "checkbox") { S[k] = el.checked; save(); render(); }
     else if (k === "tee") {
