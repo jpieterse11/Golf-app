@@ -134,6 +134,19 @@ select.bad{border-color:var(--red);border-width:2px;background:var(--warn)}
 .cb .btn{min-height:46px;font-size:15px}
 .badge{display:inline-block;border-radius:8px;background:var(--soft);padding:2px 8px;font-size:12px;font-weight:700;margin-left:6px;vertical-align:middle}
 .cname{font-size:13px;color:var(--sub);margin:2px 2px 6px}
+.h2row{display:flex;align-items:flex-end;justify-content:space-between}
+:root{--amber:#b45309}@media (prefers-color-scheme:dark){:root{--amber:#fbbf24}}
+.tag{font-size:11px;font-weight:700;color:var(--ok);margin:3px 2px 0;line-height:1.2;white-space:nowrap}
+.tag.amber{color:var(--amber)}
+.pr .ix{width:92px;flex:none}
+.pr .ix input[type=text]{flex:none;width:100%;text-align:center;min-height:44px;padding:4px 6px;font-size:17px}
+.prh{display:flex;gap:8px;padding:0 0 4px;font-size:12px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.04em}
+.ixbar{border-left:6px solid var(--ok);display:flex;gap:10px;align-items:center}
+.ixbar.amber{border-left-color:var(--amber);background:var(--warn)}
+.ixbar .btn{width:auto;min-height:44px;padding:0 16px;flex:none}
+.pr .ix{position:relative}
+.pr .ix input[type=text]{padding-right:34px}
+.mini{position:absolute;right:5px;top:8px;width:28px;height:28px;border:1px solid var(--line);background:var(--soft);color:var(--text);border-radius:8px;font-size:11px;font-weight:700;padding:0}
 </style>
 </head>
 <body>
@@ -171,6 +184,7 @@ var MP = (function () {
       format: "bestball",
       names: ["", "", "", "", ""],
       indexes: ["", "", "", "", ""],
+      idxSrc: [null, null, null, null, null], /* where an auto-filled index came from; null = typed by the user / blank */
       wheelPairs: [true, true, true],
       useHcp: true,
       tee: "Blue", slope: "125", rating: "70.4", teePar: "",
@@ -370,14 +384,14 @@ var MP = (function () {
     }
     var sumPar = c.par.length === 18 && c.par.every(function (x) { return Number.isInteger(x); }) ? c.par.reduce(function (a, b) { return a + b; }, 0) : 0;
     if (!Array.isArray(raw.tees) || raw.tees.length < 1) errors.push("Add at least one tee.");
-    else if (raw.tees.length > 12) errors.push("Too many tees (12 max).");
+    else if (raw.tees.length > 20) errors.push("Too many tees (20 max).");
     else {
       var seen = {};
       raw.tees.forEach(function (t, i) {
         var w = "Tee " + (i + 1) + (t && t.name ? " (" + cleanName(t.name) + ")" : "") + ": ";
         if (!t || typeof t !== "object") { errors.push(w + "invalid."); return; }
         var tee = { name: cleanName(t.name), rating: toNum(t.rating), slope: toNum(t.slope) };
-        if (!tee.name) errors.push(w + "name is required."); else if (tee.name.length > 30) errors.push(w + "name is too long."); else if (seen[normName(tee.name)]) errors.push(w + "duplicate tee name."); else seen[normName(tee.name)] = 1;
+        if (!tee.name) errors.push(w + "name is required."); else if (tee.name.length > 40) errors.push(w + "name is too long."); else if (seen[normName(tee.name)]) errors.push(w + "duplicate tee name."); else seen[normName(tee.name)] = 1;
         if (!(Number.isInteger(tee.slope) && tee.slope >= 55 && tee.slope <= 155)) errors.push(w + "slope must be a whole number 55 to 155.");
         if (!(tee.rating >= 50 && tee.rating <= 90)) errors.push(w + "rating must be between 50 and 90.");
         else tee.rating = Math.round(tee.rating * 10) / 10;
@@ -420,11 +434,21 @@ var MP = (function () {
     return out;
   }
   function saveCourses(storage, list) { try { storage.setItem(COURSES_KEY, JSON.stringify(list)); } catch (e) {} }
-  function allCourses(user) { return [ANNANDALE].concat(user); }
-  function findCourse(user, id) { var l = allCourses(user); for (var i = 0; i < l.length; i++) if (l[i].id === id) return l[i]; return null; }
-  function uniqueCourseName(user, name) {
+  /* built-in Annandale, then library courses (courses.json; a library entry with the built-in id is ignored), then the user's own saved courses */
+  function allCourses(user, lib) { return [ANNANDALE].concat((lib || []).filter(function (c) { return c.id !== "annandale"; }), user); }
+  // picker order: built-in Annandale first, then everything else alphabetically (case-insensitive, then id)
+  function sortCourses(list) {
+    var keep = list.filter(function (c) { return c.id === "annandale"; });
+    var rest = list.filter(function (c) { return c.id !== "annandale"; }).sort(function (a, b) {
+      var x = String(a.name).toLowerCase(), y = String(b.name).toLowerCase();
+      return x < y ? -1 : x > y ? 1 : (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    });
+    return keep.concat(rest);
+  }
+  function findCourse(user, id, lib) { var l = allCourses(user, lib); for (var i = 0; i < l.length; i++) if (l[i].id === id) return l[i]; return null; }
+  function uniqueCourseName(user, name, lib) {
     var n = cleanName(name), base = n, k = 2;
-    while (allCourses(user).some(function (c) { return normName(c.name) === normName(n); })) n = base + " (" + (k++) + ")";
+    while (allCourses(user, lib).some(function (c) { return normName(c.name) === normName(n); })) n = base + " (" + (k++) + ")";
     return n;
   }
   function applyTee(state, teeName) {
@@ -568,7 +592,7 @@ var MP = (function () {
 
   /* ---- Player roster (favorites + auto-saved players). Pure; storage is injected. Does not touch scoring. ---- */
   var ROSTER_KEY = "matchplay.golf.players.v1";
-  /* Names only: handicap indexes change daily, so they are never stored in the roster. */
+  /* The roster stores names only. Indexes come from indexes.json / manual overrides (separate storage), because they change often. */
   var FAVORITES = ["Jan Pieterse", "Phillip Hosp", "Elliott Neumayer", "Justin Mowery", "Joesph Viola"];
   function normName(n) { return String(n == null ? "" : n).trim().replace(/\s+/g, " ").toLowerCase(); }
   function cleanName(n) { return String(n == null ? "" : n).trim().replace(/\s+/g, " "); }
@@ -622,6 +646,231 @@ var MP = (function () {
   function isSampleRound(state) {
     return SAMPLE.names.every(function (n, i) { return state.names[i] === n && String(state.indexes[i]).trim() === SAMPLE.indexes[i]; });
   }
+
+  /* ---- Handicap index feed (indexes.json) and manual overrides. Pure; fetch and storage are injected. Never touches scoring. ---- */
+  var MANUAL_KEY = "matchplay.golf.manual-indexes.v1", IDXCACHE_KEY = "matchplay.golf.indexes-cache.v1";
+  var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"], DOWS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  function pad2(n) { return (n < 10 ? "0" : "") + n; }
+  function isoDate(d) { d = d || new Date(); return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()); } /* LOCAL date */
+  function validIsoDate(s) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s == null ? "" : s)); if (!m) return false;
+    var d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    return d.getFullYear() === Number(m[1]) && d.getMonth() === Number(m[2]) - 1 && d.getDate() === Number(m[3]);
+  }
+  function fmtDate(s, withDow) {
+    if (!validIsoDate(s)) return "";
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s), d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    return (withDow ? DOWS[d.getDay()] + " " : "") + MONTHS[d.getMonth()] + " " + d.getDate();
+  }
+  function isStaleDate(s, today) { return s !== (today || isoDate()); }
+  /* A usable index as the string shown in the field ("7.1", "+1.2"), or null. Numbers: 7.1 -> "7.1", 8 -> "8.0", -1.2 -> "+1.2". Strings: "+1.2" ok, "-1.2" is read as plus. */
+  function cleanIndex(v) {
+    var t, neg = false, n;
+    if (typeof v === "number") { if (!isFinite(v)) return null; neg = v < 0; n = Math.abs(v); t = n.toFixed(1); }
+    else if (typeof v === "string") {
+      t = v.trim(); if (t.charAt(0) === "-") { neg = true; t = t.slice(1); } else if (t.charAt(0) === "+") { neg = true; t = t.slice(1); }
+      if (!/^\d{1,2}(\.\d+)?$/.test(t)) return null; n = Number(t);
+    } else return null;
+    if (neg ? n > 10 : n > 54) return null;
+    if (neg && n === 0) return null;
+    return (neg ? "+" : "") + t;
+  }
+  /* indexes.json -> {ok, errors, asOf, source, players:{normalizedName:{name,index}}, skipped:[names]} */
+  function parseIndexFile(input) {
+    var res = { ok: false, errors: [], asOf: "", source: "GHIN", players: {}, skipped: [] }, o = input;
+    if (typeof input === "string") { try { o = JSON.parse(input.replace(/^\uFEFF/, "")); } catch (e) { res.errors.push("indexes.json is not valid JSON."); return res; } }
+    if (!o || typeof o !== "object" || Array.isArray(o)) { res.errors.push("indexes.json must be an object."); return res; }
+    if (!validIsoDate(o.asOf)) res.errors.push('"asOf" must be a real date like 2026-10-30.');
+    if (!o.players || typeof o.players !== "object" || Array.isArray(o.players)) res.errors.push('"players" must be an object of name: index.');
+    if (res.errors.length) return res;
+    res.asOf = o.asOf; if (typeof o.source === "string" && o.source.trim()) res.source = o.source.trim().slice(0, 20);
+    Object.keys(o.players).forEach(function (name) {
+      var k = normName(name); if (!k) return;
+      var ix = cleanIndex(o.players[name]);
+      if (ix === null) { res.skipped.push(name); return; }
+      if (!res.players[k]) res.players[k] = { name: cleanName(name), index: ix }; /* duplicates differing only by case/spacing: first wins */
+    });
+    res.ok = true; return res;
+  }
+  function loadIndexCache(storage) {
+    try {
+      var c = JSON.parse(storage.getItem(IDXCACHE_KEY) || "null"); if (!c || typeof c !== "object") return null;
+      var f = parseIndexFile(c.raw); return f.ok ? { file: f, fetchedAt: Number(c.fetchedAt) || 0 } : null;
+    } catch (e) { return null; }
+  }
+  /* Network first (no-store). A good response is remembered in storage; on any failure the last good copy is used. Resolves {file|null, status: "live"|"cached"|"none", fetchedAt, error}. */
+  function fetchIndexes(fetchFn, storage, nowMs, url) {
+    var cached = loadIndexCache(storage);
+    return Promise.resolve().then(function () { return fetchFn(url || "./indexes.json", { cache: "no-store" }); })
+      .then(function (r) { if (!r || !r.ok) throw new Error("HTTP " + (r ? r.status : "error")); return r.text(); })
+      .then(function (text) {
+        var f = parseIndexFile(text); if (!f.ok) throw new Error(f.errors.join(" "));
+        try { storage.setItem(IDXCACHE_KEY, JSON.stringify({ fetchedAt: nowMs, raw: JSON.parse(text.replace(/^\uFEFF/, "")) })); } catch (e) {}
+        return { file: f, status: "live", fetchedAt: nowMs, error: "" };
+      })
+      .catch(function (e) {
+        var msg = String(e && e.message || e);
+        return cached ? { file: cached.file, status: "cached", fetchedAt: cached.fetchedAt, error: msg } : { file: null, status: "none", fetchedAt: null, error: msg };
+      });
+  }
+  /* manual overrides: { normalizedName: {name, index, date} } */
+  function loadManual(storage) {
+    var out = {};
+    try {
+      var o = JSON.parse(storage.getItem(MANUAL_KEY) || "{}");
+      if (o && typeof o === "object" && !Array.isArray(o)) Object.keys(o).forEach(function (k) {
+        var x = o[k], ix = x && cleanIndex(x.index), nk = normName(x && x.name != null ? x.name : k);
+        if (x && ix !== null && nk && validIsoDate(x.date)) out[nk] = { name: cleanName(x.name != null ? x.name : k), index: ix, date: x.date };
+      });
+    } catch (e) {}
+    return out;
+  }
+  function saveManual(storage, m) { try { storage.setItem(MANUAL_KEY, JSON.stringify(m)); } catch (e) {} }
+  /* Set (or with a blank value, clear) a manual override. Returns {ok, manual, error}; the input map is not modified. */
+  function setManualIndex(manual, name, value, today) {
+    var k = normName(name), out = {}; Object.keys(manual || {}).forEach(function (x) { out[x] = manual[x]; });
+    if (!k) return { ok: false, manual: out, error: "Missing name." };
+    if (String(value == null ? "" : value).trim() === "") { delete out[k]; return { ok: true, manual: out, error: "" }; }
+    var ix = cleanIndex(String(value));
+    if (ix === null) return { ok: false, manual: out, error: "Enter an index like 12.4, or +1.2 for a plus handicap." };
+    out[k] = { name: cleanName(name), index: ix, date: today || isoDate() };
+    return { ok: true, manual: out, error: "" };
+  }
+  function renameManual(manual, oldName, newName) {
+    var out = {}; Object.keys(manual || {}).forEach(function (x) { out[x] = manual[x]; });
+    var a = normName(oldName), b = normName(newName);
+    if (a !== b && out[a]) { var e = out[a]; delete out[a]; out[b] = { name: cleanName(newName), index: e.index, date: e.date }; }
+    return out;
+  }
+  function removeManual(manual, name) { return setManualIndex(manual, name, "", "").manual; }
+  /* The index to use for a name: newest of (file asOf, manual date); a tie goes to the manual entry. null if unknown. */
+  function resolveIndex(file, manual, name) {
+    var k = normName(name); if (!k) return null;
+    var f = file && file.players && file.players[k] ? { index: file.players[k].index, date: file.asOf, source: file.source || "GHIN" } : null;
+    var m = manual && manual[k] ? { index: manual[k].index, date: manual[k].date, source: "manual" } : null;
+    if (f && m) return m.date >= f.date ? m : f;
+    return m || f || null;
+  }
+  /* Fill blank index fields (and refresh untouched auto-filled ones) from the feed/overrides. Never overwrites a value the user typed, and never
+     changes anything once a hole has been scored. state.idxSrc[p] remembers what was auto-filled. Returns true if anything changed. */
+  function autofillIndexes(state, file, manual, today) {
+    if (roundHasScores(state)) return false;
+    var changed = false, p;
+    if (!Array.isArray(state.idxSrc) || state.idxSrc.length !== 5) { state.idxSrc = [null, null, null, null, null]; changed = true; }
+    for (p = 0; p < 5; p++) {
+      var nmk = normName(state.names[p]), cur = String(state.indexes[p] == null ? "" : state.indexes[p]).trim(), src = state.idxSrc[p];
+      var untouched = !!src && src.value === cur, sameName = !!src && src.name === nmk;
+      var r = nmk ? resolveIndex(file, manual, state.names[p]) : null;
+      if (cur === "" || (untouched && sameName)) {
+        if (r) {
+          if (cur !== r.index || !src || src.source !== r.source || src.date !== r.date || src.name !== nmk) changed = true;
+          state.indexes[p] = r.index; state.idxSrc[p] = { name: nmk, value: r.index, source: r.source, date: r.date };
+        } else if (src && cur === "") { state.idxSrc[p] = null; changed = true; }
+      } else if (untouched && !sameName) { /* auto-filled for a different name: replace or clear */
+        if (r) { state.indexes[p] = r.index; state.idxSrc[p] = { name: nmk, value: r.index, source: r.source, date: r.date }; }
+        else { state.indexes[p] = ""; state.idxSrc[p] = null; }
+        changed = true;
+      } else if (src) { state.idxSrc[p] = null; changed = true; } /* the user typed over it: leave their number alone */
+    }
+    return changed;
+  }
+
+
+  /* ---- Course library (courses.json) and course requests. Pure; fetch and storage are injected. ---- */
+  var LIB_KEY = "matchplay.golf.courselib-cache.v1", REQ_KEY = "matchplay.golf.course-requests.v1";
+  /* courses.json -> {ok, errors, updated, courses:[valid courses with their id], skipped:[{id,name,errors}]}. Entries with the built-in id ("annandale") are ignored. */
+  function parseCourseLibrary(input) {
+    var res = { ok: false, errors: [], updated: "", courses: [], skipped: [] }, o = input;
+    if (typeof input === "string") { try { o = JSON.parse(input.replace(/^\uFEFF/, "")); } catch (e) { res.errors.push("courses.json is not valid JSON."); return res; } }
+    if (!o || typeof o !== "object" || Array.isArray(o)) { res.errors.push("courses.json must be an object."); return res; }
+    if (!Array.isArray(o.courses)) { res.errors.push('"courses" must be a list.'); return res; }
+    res.updated = validIsoDate(o.updated) ? o.updated : "";
+    var seen = { annandale: 1 };
+    o.courses.forEach(function (raw) {
+      var id = raw && typeof raw.id === "string" ? raw.id.trim() : "", nm = raw && typeof raw.name === "string" ? raw.name : "";
+      if (id === "annandale") return;
+      if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/.test(id)) { res.skipped.push({ id: id, name: nm, errors: ['Each course needs a stable "id" (letters, numbers, - or _).'] }); return; }
+      if (seen[id]) { res.skipped.push({ id: id, name: nm, errors: ["Duplicate id."] }); return; }
+      var x = {}; Object.keys(raw).forEach(function (k) { x[k] = raw[k]; });
+      if (!cleanName(x.location) && cleanName(x.city)) x.location = x.city;
+      var r = checkCourse(x);
+      if (!r.ok) { res.skipped.push({ id: id, name: nm, errors: r.errors }); return; }
+      seen[id] = 1; r.course.id = id; res.courses.push(r.course);
+    });
+    res.ok = true; return res;
+  }
+  function loadLibraryCache(storage) {
+    try {
+      var c = JSON.parse(storage.getItem(LIB_KEY) || "null"); if (!c || typeof c !== "object") return null;
+      var l = parseCourseLibrary(c.raw); return l.ok ? { lib: l, fetchedAt: Number(c.fetchedAt) || 0 } : null;
+    } catch (e) { return null; }
+  }
+  /* Same pattern as fetchIndexes: network first with no-store, last good copy in storage as the fallback. Resolves {lib|null, status, fetchedAt, error}. */
+  function fetchCourseLibrary(fetchFn, storage, nowMs, url) {
+    var cached = loadLibraryCache(storage);
+    return Promise.resolve().then(function () { return fetchFn(url || "./courses.json", { cache: "no-store" }); })
+      .then(function (r) { if (!r || !r.ok) throw new Error("HTTP " + (r ? r.status : "error")); return r.text(); })
+      .then(function (text) {
+        var l = parseCourseLibrary(text); if (!l.ok) throw new Error(l.errors.join(" "));
+        try { storage.setItem(LIB_KEY, JSON.stringify({ fetchedAt: nowMs, raw: JSON.parse(text.replace(/^\uFEFF/, "")) })); } catch (e) {}
+        return { lib: l, status: "live", fetchedAt: nowMs, error: "" };
+      })
+      .catch(function (e) {
+        var msg = String(e && e.message || e);
+        return cached ? { lib: cached.lib, status: "cached", fetchedAt: cached.fetchedAt, error: msg } : { lib: null, status: "none", fetchedAt: null, error: msg };
+      });
+  }
+  /* Course requests: [{id, name, city, date}] saved locally until a matching course shows up in the library. */
+  function loadRequests(storage) {
+    var out = [];
+    try {
+      var a = JSON.parse(storage.getItem(REQ_KEY) || "[]");
+      if (Array.isArray(a)) a.forEach(function (x) { if (x && typeof x.name === "string" && cleanName(x.name)) out.push({ id: String(x.id || newCourseId()), name: cleanName(x.name).slice(0, 60), city: cleanName(x.city).slice(0, 60), date: validIsoDate(x.date) ? x.date : "" }); });
+    } catch (e) {}
+    return out;
+  }
+  function saveRequests(storage, list) { try { storage.setItem(REQ_KEY, JSON.stringify(list)); } catch (e) {} }
+  function addRequest(list, name, city, today) {
+    var n = cleanName(name), c = cleanName(city);
+    if (!n) return { ok: false, list: list.slice(), request: null, error: "Enter the course name." };
+    if (n.length > 60 || c.length > 60) return { ok: false, list: list.slice(), request: null, error: "That's too long (60 characters max)." };
+    for (var i = 0; i < list.length; i++) if (normName(list[i].name) === normName(n) && normName(list[i].city) === normName(c)) return { ok: true, list: list.slice(), request: list[i], dup: true, error: "" };
+    var req = { id: newCourseId(), name: n, city: c, date: today || isoDate() };
+    return { ok: true, list: list.concat([req]), request: req, dup: false, error: "" };
+  }
+  function removeRequest(list, id) { return list.filter(function (r) { return r.id !== id; }); }
+  function requestText(req) { return "Bliksem, please add course: " + req.name + (req.city ? ", " + req.city : ""); }
+  var COURSE_STOP = { golf: 1, club: 1, course: 1, courses: 1, country: 1, cc: 1, gc: 1, the: 1, and: 1, at: 1, of: 1, resort: 1 };
+  function nameTokens(str) {
+    var all = String(str == null ? "" : str).toLowerCase().replace(/&/g, " ").replace(/[^a-z0-9]+/g, " ").trim().split(" ").filter(Boolean);
+    var key = all.filter(function (t) { return !COURSE_STOP[t]; });
+    return key.length ? key : all;
+  }
+  /* Loose match: ignoring words like golf/club/course/the, either the request's words are all in the course's name ("Rancho Park" = "Rancho Park Golf Course")
+     or (for names of 2+ words) the course's words are all in the request and the extra words are just its city. Case and punctuation are ignored. Returns the best course or null. */
+  function requestMatch(req, courses) {
+    var rt = nameTokens(req.name); if (!rt.length) return null;
+    var subset = function (a, b) { return a.every(function (t) { return b.indexOf(t) >= 0; }); };
+    var best = null, bestScore = 0;
+    (courses || []).forEach(function (c) {
+      var ct = nameTokens(c.name), score = 0;
+      if (!ct.length) return;
+      var where = nameTokens(c.location || "").concat(nameTokens(req.city || ""));
+      var extra = rt.filter(function (t) { return ct.indexOf(t) < 0; });
+      if (subset(rt, ct) && subset(ct, rt)) score = 3; else if (subset(rt, ct)) score = 2; else if (ct.length >= 2 && subset(ct, rt) && extra.every(function (t) { return where.indexOf(t) >= 0; })) score = 1;
+      if (score && req.city && c.location && nameTokens(req.city).some(function (t) { return nameTokens(c.location).indexOf(t) >= 0; })) score += 0.5;
+      if (score > bestScore) { best = c; bestScore = score; }
+    });
+    return best;
+  }
+  /* Setup "Clear": empties every player slot (names and indexes). Returns true if the round had scores (they are cleared too). Saved roster is untouched. */
+  function clearPlayers(state) {
+    var had = roundHasScores(state);
+    state.names = ["", "", "", "", ""]; state.indexes = ["", "", "", "", ""]; state.idxSrc = [null, null, null, null, null];
+    if (had) { state.scores = emptyScores(); state.hole = 0; }
+    return had;
+  }
+
   /* Once at least one hole is scored: add unknown player names (names only, never indexes). */
   function rosterAutoSave(roster, state) {
     var res = { roster: roster.map(function (x) { return { name: x.name, fav: x.fav }; }), changed: false, added: [] };
@@ -636,12 +885,17 @@ var MP = (function () {
 
   return {
     COURSE_FORMAT: COURSE_FORMAT, COURSES_KEY: COURSES_KEY, ANNANDALE: ANNANDALE, checkCourse: checkCourse, exportCourse: exportCourse, importCourse: importCourse, snapshotOf: snapshotOf,
-    newCourseId: newCourseId, loadCourses: loadCourses, saveCourses: saveCourses, allCourses: allCourses, findCourse: findCourse, uniqueCourseName: uniqueCourseName,
+    newCourseId: newCourseId, loadCourses: loadCourses, saveCourses: saveCourses, allCourses: allCourses, sortCourses: sortCourses, findCourse: findCourse, uniqueCourseName: uniqueCourseName,
     applyTee: applyTee, applyCourse: applyCourse, courseChanged: courseChanged,
     skins: skins, birdies: birdies, settleAll: settleAll, undoPush: undoPush, undoPop: undoPop, diffEvents: diffEvents, holeComplete: holeComplete,
     ROSTER_KEY: ROSTER_KEY, FAVORITES: FAVORITES, normName: normName, cleanName: cleanName, validIndex: validIndex, missingIndexes: missingIndexes, seedRoster: seedRoster, parseRoster: parseRoster,
     loadRoster: loadRoster, saveRoster: saveRoster, sortRoster: sortRoster, rosterFind: rosterFind, roundHasScores: roundHasScores, isSampleRound: isSampleRound, rosterAutoSave: rosterAutoSave,
     DEFAULT_SI: DEFAULT_SI, DEFAULT_PAR: DEFAULT_PAR, TEES: TEES, HOLES: HOLES, WHEEL_PAIRS: WHEEL_PAIRS, SAMPLE: SAMPLE,
+    MANUAL_KEY: MANUAL_KEY, IDXCACHE_KEY: IDXCACHE_KEY, isoDate: isoDate, validIsoDate: validIsoDate, fmtDate: fmtDate, isStaleDate: isStaleDate, cleanIndex: cleanIndex, parseIndexFile: parseIndexFile,
+    loadIndexCache: loadIndexCache, fetchIndexes: fetchIndexes, loadManual: loadManual, saveManual: saveManual, setManualIndex: setManualIndex, renameManual: renameManual, removeManual: removeManual,
+    resolveIndex: resolveIndex, autofillIndexes: autofillIndexes,
+    LIB_KEY: LIB_KEY, REQ_KEY: REQ_KEY, parseCourseLibrary: parseCourseLibrary, loadLibraryCache: loadLibraryCache, fetchCourseLibrary: fetchCourseLibrary,
+    loadRequests: loadRequests, saveRequests: saveRequests, addRequest: addRequest, removeRequest: removeRequest, requestText: requestText, requestMatch: requestMatch, nameTokens: nameTokens, clearPlayers: clearPlayers,
     emptyScores: emptyScores, defaultState: defaultState, strokesOn: strokesOn, parseIndex: parseIndex, money: money, signedMoney: signedMoney,
     runBets: runBets, activePlayers: activePlayers, nameOf: nameOf, sideName: sideName, coursePar: coursePar, matchDefs: matchDefs,
     compute: compute, betStatus: betStatus, settle: settle
@@ -657,7 +911,9 @@ if (typeof module !== "undefined") module.exports = MP;
   var S = MP.defaultState();
   var R = [];
   var C = []; /* saved (user) courses */
+  var LIB = [], LIBS = { lib: null, status: "none", fetchedAt: null, error: "" }, REQS = [], libBusy = false, lastLibFetch = 0, adv = false, reqName = "", reqCity = "", reqMsg = null; /* course library + requests */
   var ed = null, edErr = [], exportId = null, impText = "", impMsg = null; /* course editor / import-export UI state */
+  var IDX = { file: null, status: "none", fetchedAt: null, error: "" }, MAN = {}, idxBusy = false, lastIdxFetch = 0, idxDirty = false; /* index feed + manual overrides */
   var undo = []; /* session-only undo stack of score entries */
   var toastTimer = null;
   var tried = false; /* user tried to start without all indexes */
@@ -740,17 +996,49 @@ if (typeof module !== "undefined") module.exports = MP;
     if (S.format === "bestball") return "Team " + (p < 2 ? "A" : "B") + ", player " + ((p % 2) + 1);
     return p < 2 ? "Wheel player " + (p + 1) : "Player " + (p + 1);
   }
+  function today() { return MP.isoDate(); }
+  function applyAuto() { var ch = MP.autofillIndexes(S, IDX.file, MAN, today()); if (ch) save(); return ch; }
+  function typing() { var a = document.activeElement; return !!a && a !== document.body && (a.tagName === "INPUT" || a.tagName === "TEXTAREA") && app.contains(a); }
+  function idxApply() {
+    if (typing()) { idxDirty = true; return; }
+    idxDirty = false; applyAuto(); if (S.screen === "setup" || S.screen === "players") render();
+  }
+  function refreshIdx(force) {
+    if (idxBusy || (!force && Date.now() - lastIdxFetch < 4000)) return;
+    idxBusy = true; if (force && S.screen === "players") render();
+    MP.fetchIndexes(window.fetch ? window.fetch.bind(window) : null, localStorage, Date.now()).then(function (res) {
+      idxBusy = false; lastIdxFetch = Date.now(); IDX = res; idxApply();
+    });
+  }
+  function tagFor(src, date, short) { var st = MP.isStaleDate(date, today()); return '<span class="tag' + (st ? " amber" : "") + '">' + esc(src + " · " + MP.fmtDate(date, false)) + (st && !short ? " (stale)" : "") + "</span>"; }
+  function idxTime(ms) { var d = new Date(ms); return MP.fmtDate(MP.isoDate(d), false) + ", " + d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
   function idxBad(p) { return S.useHcp && !MP.validIndex(S.indexes[p]); }
   function idxField(p) {
-    var v = String(S.indexes[p] || "").trim(), bad = tried && idxBad(p);
+    var v = String(S.indexes[p] || "").trim(), bad = tried && idxBad(p), src = S.idxSrc && S.idxSrc[p];
     return '<div><label class="f">Today\'s handicap index</label><div class="idx"><input type="text" inputmode="decimal" autocomplete="off" autocapitalize="off" spellcheck="false" data-k="indexes" data-i="' + p + '" value="' + esc(v) + '" placeholder="e.g. 12.4" class="' + (bad ? "bad" : "") + '" aria-label="Today\'s handicap index, player ' + (p + 1) + '">' +
-      '<button type="button" class="plus' + (v.charAt(0) === "+" ? " on" : "") + '" data-act="plus" data-p="' + p + '" aria-label="Toggle plus handicap" title="Plus handicap (better than scratch)">+</button></div></div>';
+      '<button type="button" class="plus' + (v.charAt(0) === "+" ? " on" : "") + '" data-act="plus" data-p="' + p + '" aria-label="Toggle plus handicap" title="Plus handicap (better than scratch)">+</button></div>' +
+      (src && src.value === v ? '<div data-tag="' + p + '">' + tagFor(src.source, src.date) + "</div>" : '<div data-tag="' + p + '"></div>') + "</div>";
   }
   function idxMsg() {
-    return '<div class="msg bad" id="idxmsg"' + (tried && MP.missingIndexes(S).length ? "" : " hidden") + "><b>Enter today's index for each player.</b> Handicap indexes change daily, so they are not saved. Use a + for plus handicaps (e.g. +1.2).</div>";
+    return '<div class="msg bad" id="idxmsg"' + (tried && MP.missingIndexes(S).length ? "" : " hidden") + "><b>Enter today's index for each player.</b> Indexes fill in automatically for players with a known index (Players tab). Use a + for plus handicaps (e.g. +1.2).</div>";
+  }
+  function allC() { return MP.sortCourses(MP.allCourses(C, LIB)); }
+  function findC(id) { return MP.findCourse(C, id, LIB); }
+  function courseKind(c) { return c.id === "annandale" ? "built-in" : LIB.some(function (x) { return x.id === c.id; }) ? "library" : "my course"; }
+  function refreshLib(force) {
+    if (libBusy || (!force && Date.now() - lastLibFetch < 4000)) return;
+    libBusy = true; if (force && S.screen === "courses") render();
+    MP.fetchCourseLibrary(window.fetch ? window.fetch.bind(window) : null, localStorage, Date.now()).then(function (res) {
+      libBusy = false; lastLibFetch = Date.now(); LIBS = res; LIB = res.lib ? res.lib.courses : [];
+      if ((S.screen === "courses" || S.screen === "setup") && !typing()) render();
+    });
+  }
+  function copyText(t, done) {
+    var fb = function () { try { var ta = document.createElement("textarea"); ta.value = t; ta.style.cssText = "position:fixed;opacity:0"; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); done(); } catch (e) { window.prompt("Copy this text:", t); } };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done, fb); else fb();
   }
   function courseOpts() {
-    var list = MP.allCourses(C), found = list.some(function (c) { return c.id === S.courseId; });
+    var list = allC(), found = list.some(function (c) { return c.id === S.courseId; });
     return list.map(function (c) { return '<option value="' + esc(c.id) + '"' + (c.id === S.courseId ? " selected" : "") + ">" + esc(c.name + (c.location ? " · " + c.location : "")) + "</option>"; }).join("") +
       (found ? "" : '<option value="' + esc(S.courseId) + '" selected>' + esc(S.course.name) + " (copy kept with this round)</option>");
   }
@@ -771,23 +1059,40 @@ if (typeof module !== "undefined") module.exports = MP;
   function parSum(c) { return c.par.reduce(function (a, b) { return a + (Number(b) || 0); }, 0); }
   function viewCourses() {
     var o = '<button class="btn" data-act="go" data-v="setup" style="margin-bottom:8px">‹ Back to Setup</button><h1>🏌️ Courses</h1>';
+    var all = allC();
+    o += '<div class="card ixbar' + (LIBS.lib ? "" : " amber") + '"><div class="grow"><b>' + (LIBS.lib ? "Course library" + (LIBS.lib.updated ? " · updated " + esc(MP.fmtDate(LIBS.lib.updated, true)) : "") : "Course library not loaded") + "</b>" +
+      '<div class="sub small">' + (LIBS.status === "live" ? "Checked " + esc(idxTime(LIBS.fetchedAt)) : LIBS.status === "cached" ? "Offline: showing the copy saved " + esc(idxTime(LIBS.fetchedAt)) : libBusy ? "Checking…" : "Couldn't load courses.json (offline?). Annandale is always available.") + "</div></div>" +
+      '<button class="btn" data-act="refreshlib"' + (libBusy ? " disabled" : "") + ">" + (libBusy ? "…" : "Refresh") + "</button></div>";
+    if (LIBS.lib && LIBS.lib.skipped.length) o += '<div class="msg" style="margin:8px 0">' + LIBS.lib.skipped.length + " library course" + (LIBS.lib.skipped.length === 1 ? " was" : "s were") + " skipped (invalid data): " + esc(LIBS.lib.skipped.map(function (x) { return x.name || x.id || "?"; }).join(", ")) + ".</div>";
     if (exportId) {
-      var ec = MP.findCourse(C, exportId);
+      var ec = findC(exportId);
       if (ec) o += '<div class="card"><b>Export · ' + esc(ec.name) + '</b><p class="sub small">Copy this text and send it to a buddy, or paste it into Import on another phone.</p><textarea id="exptxt" readonly>' + esc(MP.exportCourse(ec)) + '</textarea><div class="cb"><button class="btn pri" data-act="copyexp">Copy text</button>' +
         (navigator.share ? '<button class="btn" data-act="shareexp">Share…</button>' : "<span></span>") + '</div><button class="btn" style="margin-top:8px" data-act="closeexp">Close</button></div>';
     }
-    MP.allCourses(C).forEach(function (c) {
-      var built = c.id === "annandale", cur = c.id === S.courseId;
-      o += '<div class="card"><b style="font-size:18px">' + esc(c.name) + "</b>" + (cur ? '<span class="badge">in use</span>' : "") + (built ? '<span class="badge">built-in</span>' : "") +
+    o += "<h2>Choose a course</h2>";
+    all.forEach(function (c) {
+      var kind = courseKind(c), cur = c.id === S.courseId, mine = kind === "my course";
+      o += '<div class="card"><b style="font-size:18px">' + esc(c.name) + "</b>" + (cur ? '<span class="badge">in use</span>' : "") + (adv || mine ? '<span class="badge">' + kind + "</span>" : "") +
         '<div class="sub small">' + esc(c.location ? c.location + " · " : "") + "Par " + parSum(c) + " · " + c.tees.length + " tee" + (c.tees.length === 1 ? "" : "s") + ": " + esc(c.tees.map(function (t) { return t.name; }).join(", ")) + "</div>" +
-        '<div class="cb"><button class="btn pri" data-act="usecourse" data-v="' + esc(c.id) + '">Use for this round</button>' + (built ? "" : '<button class="btn" data-act="editcourse" data-v="' + esc(c.id) + '">Edit</button>') +
-        '<button class="btn" data-act="dupcourse" data-v="' + esc(c.id) + '">Duplicate</button><button class="btn" data-act="expcourse" data-v="' + esc(c.id) + '">Export</button>' +
-        (built ? "" : '<button class="btn dng" data-act="delcourse" data-v="' + esc(c.id) + '">Delete</button>') + "</div></div>";
+        '<div class="cb" style="grid-template-columns:1fr"><button class="btn pri" data-act="usecourse" data-v="' + esc(c.id) + '">Use for this round</button></div>' +
+        (adv ? '<div class="cb"><button class="btn" data-act="dupcourse" data-v="' + esc(c.id) + '">Duplicate</button><button class="btn" data-act="expcourse" data-v="' + esc(c.id) + '">Export</button>' +
+          (mine ? '<button class="btn" data-act="editcourse" data-v="' + esc(c.id) + '">Edit</button><button class="btn dng" data-act="delcourse" data-v="' + esc(c.id) + '">Delete</button>' : "") + "</div>" : "") + "</div>";
     });
-    o += '<button class="btn pri" data-act="newcourse" style="margin-top:4px">+ New course</button>';
-    o += '<h2>Import a course</h2><div class="card"><p class="sub small" style="margin-top:0">Paste course text (JSON) that a buddy sent you.</p><textarea data-k="importtxt" placeholder=\'{ "format": "matchplay-course", "version": 1, "name": "…", … }\' spellcheck="false" autocapitalize="off" autocomplete="off">' + esc(impText) + "</textarea>";
-    if (impMsg) o += '<div class="msg' + (impMsg.ok ? "" : " bad") + '" style="margin-top:8px">' + (impMsg.ok ? esc(impMsg.text) : "<b>Can't import:</b><ul style=\"margin:4px 0 0 18px;padding:0\">" + impMsg.errors.map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>") + "</div>";
-    o += '<button class="btn pri" style="margin-top:10px" data-act="importcourse">Import course</button></div>';
+    o += "<h2>Don't see your course?</h2>";
+    REQS.forEach(function (rq) {
+      var m = MP.requestMatch(rq, all);
+      if (m) o += '<div class="card ixbar"><div class="grow"><b>✓ Added: ' + esc(m.name) + '</b><div class="sub small">You asked for ' + esc(rq.name + (rq.city ? ", " + rq.city : "")) + '</div></div></div><div class="cb"><button class="btn pri" data-act="usecourse" data-v="' + esc(m.id) + '">Use for this round</button><button class="btn" data-act="delreq" data-v="' + esc(rq.id) + '">Dismiss</button></div>';
+      else o += '<div class="card ixbar amber"><div class="grow"><b>' + esc(rq.name) + "</b>" + (rq.city ? " · " + esc(rq.city) : "") + '<div style="color:var(--amber);font-weight:700;font-size:14px">Requested · waiting for Bliksem</div><div class="sub small">' + esc(MP.fmtDate(rq.date, true)) + '</div></div></div>' +
+        '<div class="cb"><button class="btn pri" data-act="copyreq" data-v="' + esc(rq.id) + '">Copy request</button>' + (navigator.share ? '<button class="btn" data-act="sharereq" data-v="' + esc(rq.id) + '">Share…</button>' : "<span></span>") + '</div><button class="btn" style="margin:8px 0 12px" data-act="delreq" data-v="' + esc(rq.id) + '">Cancel request</button>';
+    });
+    o += '<div class="card"><p class="sub small" style="margin-top:0">Ask Bliksem to add it. Just the name and city, no hole data to type. Once the course shows up in the library it appears above automatically.</p>' + txt("Course name", "reqname", reqName, "e.g. Rancho Park") + '<div style="height:10px"></div>' + txt("City", "reqcity", reqCity, "e.g. Los Angeles, CA") +
+      (reqMsg ? '<div class="msg' + (reqMsg.ok ? "" : " bad") + '" style="margin-top:8px">' + esc(reqMsg.text) + "</div>" : "") + '<button class="btn pri" style="margin-top:10px" data-act="addreq">Request course</button></div>';
+    o += '<button class="btn" style="margin-top:14px" data-act="adv">' + (adv ? "Hide advanced ▴" : "Advanced: import / edit courses ▾") + "</button>";
+    if (adv) {
+      o += '<h2>Import a course</h2><div class="card"><p class="sub small" style="margin-top:0">Paste course text (JSON) that a buddy sent you. Saved on this phone only.</p><textarea data-k="importtxt" placeholder=\'{ "format": "matchplay-course", "version": 1, "name": "…", … }\' spellcheck="false" autocapitalize="off" autocomplete="off">' + esc(impText) + "</textarea>";
+      if (impMsg) o += '<div class="msg' + (impMsg.ok ? "" : " bad") + '" style="margin-top:8px">' + (impMsg.ok ? esc(impMsg.text) : "<b>Can't import:</b><ul style=\"margin:4px 0 0 18px;padding:0\">" + impMsg.errors.map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ul>") + "</div>";
+      o += '<button class="btn pri" style="margin-top:10px" data-act="importcourse">Import course</button></div>';
+    }
     return o;
   }
   function blankEd() { var si = [], i; for (i = 1; i <= 18; i++) si.push(i); return { id: "", name: "", location: "", par: [4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4], si: si, tees: [{ name: "White", rating: "72.0", slope: "113", par: "", yards: "" }] }; }
@@ -835,14 +1140,25 @@ if (typeof module !== "undefined") module.exports = MP;
       (oth.length ? '<optgroup label="Saved players">' + oth.map(opt).join("") + "</optgroup>" : "") + "</select></div>";
   }
   function viewPlayers() {
-    var h = "<h1>👥 Players</h1>";
-    h += '<p class="sub">Names only. Handicap indexes change daily, so you enter them each round. Tap ☆ to make a favorite; favorites are listed first when you pick players. Anyone who plays a round is saved here automatically.</p>';
+    var h = "<h1>👥 Players</h1>", f = IDX.file, td = today();
+    if (f) {
+      var st = MP.isStaleDate(f.asOf, td);
+      h += '<div class="card ixbar' + (st ? " amber" : "") + '"><div class="grow"><b>' + esc(f.source) + " indexes as of " + esc(MP.fmtDate(f.asOf, true)) + "</b>" +
+        (st ? ' <span class="badge" style="background:var(--amber);color:#fff">stale</span><div class="small" style="color:var(--amber);font-weight:600">Not today (' + esc(MP.fmtDate(td, true)) + "). Ask for a refresh before you play.</div>" : '<div class="small" style="color:var(--ok);font-weight:600">Up to date for today</div>') +
+        '<div class="sub small">' + (IDX.status === "live" ? "Checked " + esc(idxTime(IDX.fetchedAt)) : IDX.status === "cached" ? "Offline: showing the copy saved " + esc(idxTime(IDX.fetchedAt)) : "") + "</div></div>" +
+        '<button class="btn" data-act="refreshidx"' + (idxBusy ? " disabled" : "") + ">" + (idxBusy ? "…" : "Refresh") + "</button></div>";
+    } else {
+      h += '<div class="card ixbar amber"><div class="grow"><b>No index list loaded</b><div class="sub small">' + (idxBusy ? "Checking…" : "Couldn't load indexes.json (offline?). Type an index to set one by hand.") + '</div></div><button class="btn" data-act="refreshidx"' + (idxBusy ? " disabled" : "") + ">" + (idxBusy ? "…" : "Refresh") + "</button></div>";
+    }
+    h += '<p class="sub">Indexes come from GHIN and are refreshed on game days. Type a number in the Index column to override one by hand (the newest date wins). They fill in on Setup when you pick a player. Tap ☆ to make a favorite. Anyone who plays a round is saved here automatically.</p>';
     h += '<h2>Saved players (' + R.length + ")</h2>";
     if (!R.length) h += '<div class="msg">No saved players yet. Add one below, or play a round.</div>';
-    else h += '<div class="card">' + MP.sortRoster(R).map(function (x) {
-      var k = MP.normName(x.name);
+    else h += '<div class="card"><div class="prh"><span style="width:48px"></span><span class="grow">Name</span><span style="width:92px;text-align:center">Index</span><span style="width:48px"></span></div>' + MP.sortRoster(R).map(function (x) {
+      var k = MP.normName(x.name), r = MP.resolveIndex(f, MAN, x.name);
       return '<div class="pr"><button class="star' + (x.fav ? " on" : "") + '" data-act="star" data-v="' + esc(k) + '" aria-label="' + (x.fav ? "Remove favorite" : "Make favorite") + '">' + (x.fav ? "★" : "☆") + "</button>" +
         '<input type="text" autocomplete="off" autocapitalize="words" spellcheck="false" data-k="rname" data-v="' + esc(k) + '" value="' + esc(x.name) + '" aria-label="Player name (tap to rename)">' +
+        '<div class="ix"><input type="text" inputmode="decimal" autocomplete="off" autocapitalize="off" spellcheck="false" data-k="pidx" data-v="' + esc(k) + '" value="' + esc(r ? r.index : "") + '" placeholder="–" aria-label="Handicap index for ' + esc(x.name) + '">' +
+        (r ? '<button class="mini" data-act="pplus" data-v="' + esc(k) + '" aria-label="Toggle plus handicap" title="Plus handicap">+/−</button>' : "") + "<div>" + (r ? tagFor(r.source, r.date, true) : '<span class="tag amber">no index</span>') + "</div></div>" +
         '<button class="del" data-act="delp" data-v="' + esc(k) + '" aria-label="Delete ' + esc(x.name) + '">🗑</button></div>';
     }).join("") + "</div>";
     h += '<h2>Add a player</h2><div class="card">' + txt("Name", "newname", "", "Full name") + '<div style="height:10px"></div><button class="btn pri" data-act="addp">Add player</button></div>';
@@ -853,12 +1169,12 @@ if (typeof module !== "undefined") module.exports = MP;
     var h = "<h1>⛳ Match Play · Setup</h1>";
     h += '<h2>Format</h2>' + seg("format", [["singles", "One on one"], ["bestball", "2 vs 2"], ["wheel", "5-player wheel"]], S.format);
     if (S.format === "wheel") h += '<p class="sub">' + esc(sn([0, 1])) + " (the wheel) play three best-ball matches: vs " + MP.WHEEL_PAIRS.map(sn).join(", vs ") + ".</p>";
-    h += "<h2>Players</h2>" + idxMsg();
+    h += '<div class="h2row"><h2>Players</h2><button class="btn dng" data-act="clearplayers" style="width:auto;min-height:38px;padding:0 16px;font-size:15px;margin-bottom:6px">Clear</button></div>' + idxMsg();
     calc.active.forEach(function (p) {
       h += '<div class="card"><div class="sub" style="margin-bottom:6px">' + esc(playerLabel(p)) + "</div>" + pickSel(p, calc.active) + '<div class="grid2">' +
         txt("Name", "names", S.names[p], "Player " + (p + 1), "", p) + idxField(p) + "</div></div>";
     });
-    var liveC = MP.findCourse(C, S.courseId), tp = Number(S.teePar) || MP.coursePar(S);
+    var liveC = findC(S.courseId), tp = Number(S.teePar) || MP.coursePar(S);
     h += "<h2>Course</h2><div class=\"card\"><label class=\"f\">Course</label><select data-k=\"course\">" + courseOpts() + "</select>" +
       '<div class="sub small" style="margin:4px 2px 0">' + esc(S.course.location ? S.course.location + " · " : "") + "Par " + tp + " · " + S.course.tees.length + " tee" + (S.course.tees.length === 1 ? "" : "s") + "</div>" +
       (liveC && MP.courseChanged(S, liveC) ? '<div class="msg" style="margin-top:8px"><b>' + esc(liveC.name) + '</b> was edited since this round started. This round still uses the old version.<button class="btn" style="margin-top:8px" data-act="updcourse">Update from course</button></div>' : "") +
@@ -887,7 +1203,7 @@ if (typeof module !== "undefined") module.exports = MP;
     h += idxMsg().replace('id="idxmsg"', 'id="idxmsg2"') + '<button class="btn pri" data-act="go" data-v="hole">Start scoring ›</button><div style="height:10px"></div>' +
       '<button class="btn dng" data-act="newround">New round (clear scores)</button><div style="height:10px"></div>' +
       '<button class="btn" data-act="sample">Load sample wheel round</button>' +
-      '<p class="sub small" style="text-align:center">Round scores save automatically on this device. Handicap indexes are cleared for each new round.</p>';
+      '<p class="sub small" style="text-align:center">Round scores save automatically on this device. Handicap indexes fill in from the Players tab for each new round (blank if unknown).</p>';
     return h;
   }
 
@@ -1083,7 +1399,9 @@ if (typeof module !== "undefined") module.exports = MP;
     }
     tried = false;
     if (screen === "card" && S.screen !== "card") S.cardView = S.hole < 9 ? "front" : "back";
-    S.screen = screen; save(); render(); window.scrollTo(0, 0); }
+    S.screen = screen; save(); render(); window.scrollTo(0, 0);
+    if (screen === "setup" || screen === "players") refreshIdx(false);
+    if (screen === "setup" || screen === "courses") refreshLib(false); }
   function setScore(p, v) {
     if (String(S.scores[p][S.hole]) === String(v)) { render(); return; }
     var prev = JSON.parse(JSON.stringify(S));
@@ -1097,14 +1415,14 @@ if (typeof module !== "undefined") module.exports = MP;
     showToast([{ type: "info", text: "Undid " + lab(e.p) + " on #" + (e.h + 1) }]);
   }
   function newRound() {
-    if (!window.confirm("Start a new round? This clears all scores and handicap indexes (enter today's index for each player). Names and bet amounts are kept.")) return;
-    var liveNR = MP.findCourse(C, S.courseId); if (liveNR && MP.courseChanged(S, liveNR)) switchCourse(liveNR);
-    S.scores = MP.emptyScores(); undo = []; S.indexes = ["", "", "", "", ""]; S.hole = 0; S.view = 0; S.screen = "setup"; tried = false; save(); render(); window.scrollTo(0, 0);
+    if (!window.confirm("Start a new round? This clears all scores. Indexes are refreshed from the Players tab (blank if a player has none). Names and bet amounts are kept.")) return;
+    var liveNR = findC(S.courseId); if (liveNR && MP.courseChanged(S, liveNR)) switchCourse(liveNR);
+    S.scores = MP.emptyScores(); undo = []; S.indexes = ["", "", "", "", ""]; S.idxSrc = [null, null, null, null, null]; applyAuto(); S.hole = 0; S.view = 0; S.screen = "setup"; tried = false; save(); render(); window.scrollTo(0, 0);
   }
   function sample() {
     if (!window.confirm("Replace the current round with the sample wheel round (Al, Bob, Chris, Dan, Eddie) on Annandale?")) return;
     var d = MP.SAMPLE;
-    undo = []; MP.applyCourse(S, MP.ANNANDALE, "Blue"); S.format = "wheel"; S.names = d.names.slice(); S.indexes = d.indexes.slice(); S.scores = d.scores.map(function (r) { return r.map(String); });
+    undo = []; MP.applyCourse(S, MP.ANNANDALE, "Blue"); S.format = "wheel"; S.names = d.names.slice(); S.indexes = d.indexes.slice(); S.idxSrc = [null, null, null, null, null]; S.scores = d.scores.map(function (r) { return r.map(String); });
     S.tee = "Blue"; S.slope = "125"; S.rating = "70.4"; S.allowance = "90"; S.front = S.back = S.overall = "10"; S.autoPress = true; S.useHcp = true; S.view = 0; S.hole = 0; tried = false;
     save(); render();
   }
@@ -1127,44 +1445,63 @@ if (typeof module !== "undefined") module.exports = MP;
     else if (a === "newround") newRound();
     else if (a === "sample") sample();
     else if (a === "undo") doUndo();
-    else if (a === "updcourse") { var lv = MP.findCourse(C, S.courseId); if (lv) switchCourse(lv); }
-    else if (a === "usecourse") { var uc = MP.findCourse(C, v); if (uc && (uc.id === S.courseId && !MP.courseChanged(S, uc) || confirmSwitch(uc))) { switchCourse(uc); go("setup"); } }
+    else if (a === "updcourse") { var lv = findC(S.courseId); if (lv) switchCourse(lv); }
+    else if (a === "usecourse") { var uc = findC(v); if (uc && (uc.id === S.courseId && !MP.courseChanged(S, uc) || confirmSwitch(uc))) { switchCourse(uc); go("setup"); } }
     else if (a === "newcourse") { ed = blankEd(); edErr = []; go("courseedit"); }
-    else if (a === "editcourse") { var ec1 = MP.findCourse(C, v); if (ec1) { ed = edFrom(ec1, false); edErr = []; go("courseedit"); } }
-    else if (a === "dupcourse") { var dc = MP.findCourse(C, v); if (dc) { ed = edFrom(dc, true, MP.uniqueCourseName(C, dc.name + " (copy)")); edErr = []; go("courseedit"); } }
-    else if (a === "delcourse") { var xc = MP.findCourse(C, v); if (xc && window.confirm("Delete " + xc.name + "? Rounds already using it keep their own copy.")) { C = C.filter(function (c) { return c.id !== v; }); MP.saveCourses(localStorage, C); if (exportId === v) exportId = null; render(); } }
+    else if (a === "editcourse") { var ec1 = findC(v); if (ec1) { ed = edFrom(ec1, false); edErr = []; go("courseedit"); } }
+    else if (a === "dupcourse") { var dc = findC(v); if (dc) { ed = edFrom(dc, true, MP.uniqueCourseName(C, dc.name + " (copy)", LIB)); edErr = []; go("courseedit"); } }
+    else if (a === "delcourse") { var xc = findC(v); if (xc && window.confirm("Delete " + xc.name + "? Rounds already using it keep their own copy.")) { C = C.filter(function (c) { return c.id !== v; }); MP.saveCourses(localStorage, C); if (exportId === v) exportId = null; render(); } }
     else if (a === "expcourse") { exportId = v; render(); window.scrollTo(0, 0); }
     else if (a === "closeexp") { exportId = null; render(); }
-    else if (a === "copyexp") { var ta = document.getElementById("exptxt"); var done = function () { showToast([{ type: "info", text: "Course text copied" }]); }; ta.select(); ta.setSelectionRange(0, 99999);
-      var fb = function () { try { document.execCommand("copy"); done(); } catch (e) {} }; if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(ta.value).then(done, fb); else fb(); }
-    else if (a === "shareexp") { var sc = MP.findCourse(C, exportId); if (sc && navigator.share) navigator.share({ title: sc.name + " (Match Play course)", text: MP.exportCourse(sc) }).catch(function () {}); }
+    else if (a === "copyexp") { var ta = document.getElementById("exptxt"); if (ta) copyText(ta.value, function () { showToast([{ type: "info", text: "Course text copied" }]); }); }
+    else if (a === "shareexp") { var sc = findC(exportId); if (sc && navigator.share) navigator.share({ title: sc.name + " (Match Play course)", text: MP.exportCourse(sc) }).catch(function () {}); }
     else if (a === "importcourse") {
       var r = MP.importCourse(impText);
       if (!r.ok) impMsg = { ok: false, errors: r.errors };
-      else { r.course.name = MP.uniqueCourseName(C, r.course.name); r.course.id = MP.newCourseId(); C.push(r.course); MP.saveCourses(localStorage, C); impText = ""; impMsg = { ok: true, text: "Imported " + r.course.name + ". Tap Use for this round to play it." }; }
+      else { r.course.name = MP.uniqueCourseName(C, r.course.name, LIB); r.course.id = MP.newCourseId(); C.push(r.course); MP.saveCourses(localStorage, C); impText = ""; impMsg = { ok: true, text: "Imported " + r.course.name + ". Tap Use for this round to play it." }; }
       render();
     }
     else if (a === "canceled") { ed = null; edErr = []; go("courses"); }
-    else if (a === "addtee") { if (ed.tees.length < 12) { ed.tees.push({ name: "", rating: "", slope: "", par: "", yards: "" }); render(); } }
+    else if (a === "addtee") { if (ed.tees.length < 20) { ed.tees.push({ name: "", rating: "", slope: "", par: "", yards: "" }); render(); } }
     else if (a === "rmtee") { if (ed.tees.length > 1) { ed.tees.splice(Number(v), 1); render(); } }
     else if (a === "savecourse") {
       var res = MP.checkCourse(edRaw());
       if (!res.ok) { edErr = res.errors; render(); window.scrollTo(0, 0); return; }
       var cc = res.course;
-      if (ed.id) { cc.id = ed.id; C = C.map(function (c) { return c.id === ed.id ? cc : c; }); } else { cc.id = MP.newCourseId(); cc.name = MP.uniqueCourseName(C, cc.name); C.push(cc); }
+      if (ed.id) { cc.id = ed.id; C = C.map(function (c) { return c.id === ed.id ? cc : c; }); } else { cc.id = MP.newCourseId(); cc.name = MP.uniqueCourseName(C, cc.name, LIB); C.push(cc); }
       MP.saveCourses(localStorage, C); ed = null; edErr = []; go("courses");
     }
     else if (a === "edit") { S.hole = Number(v); go("hole"); }
     else if (a === "cardView" || a === "skinMode" || a === "skinLeft") { S[a] = v; save(); render(); }
     else if (a === "plus") {
       var pi2 = Number(el.getAttribute("data-p")), cv = String(S.indexes[pi2] || "").trim();
-      S.indexes[pi2] = cv.charAt(0) === "+" ? cv.slice(1) : "+" + cv; save(); render();
+      S.indexes[pi2] = cv.charAt(0) === "+" ? cv.slice(1) : "+" + cv; S.idxSrc[pi2] = null; save(); render();
       var f = app.querySelector('input[data-k="indexes"][data-i="' + pi2 + '"]'); if (f) f.focus();
+    }
+    else if (a === "refreshidx") refreshIdx(true);
+    else if (a === "refreshlib") refreshLib(true);
+    else if (a === "adv") { adv = !adv; render(); }
+    else if (a === "clearplayers") {
+      if (MP.roundHasScores(S) && !window.confirm("Clear all players AND all scores for this round? The scores can't be recovered. Your saved players and favorites are not affected.")) return;
+      MP.clearPlayers(S); undo = []; tried = false; save(); render();
+    }
+    else if (a === "addreq") {
+      var rr = MP.addRequest(REQS, reqName, reqCity, today());
+      if (!rr.ok) reqMsg = { ok: false, text: rr.error };
+      else { REQS = rr.list; MP.saveRequests(localStorage, REQS); reqMsg = { ok: true, text: rr.dup ? "You already requested that one." : "Saved. Tap Copy request below and send it to Bliksem." }; if (!rr.dup) { reqName = ""; reqCity = ""; } }
+      render();
+    }
+    else if (a === "copyreq") { var rq1 = REQS.filter(function (x) { return x.id === v; })[0]; if (rq1) copyText(MP.requestText(rq1), function () { showToast([{ type: "info", text: "Request copied. Send it to Bliksem." }]); }); }
+    else if (a === "sharereq") { var rq2 = REQS.filter(function (x) { return x.id === v; })[0]; if (rq2 && navigator.share) navigator.share({ text: MP.requestText(rq2) }).catch(function () {}); }
+    else if (a === "delreq") { REQS = MP.removeRequest(REQS, v); MP.saveRequests(localStorage, REQS); render(); }
+    else if (a === "pplus") {
+      var pe0 = MP.resolveIndex(IDX.file, MAN, (R.filter(function (x) { return MP.normName(x.name) === v; })[0] || {}).name), pn0 = (R.filter(function (x) { return MP.normName(x.name) === v; })[0] || {}).name;
+      if (pe0 && pn0) { var nv = pe0.index.charAt(0) === "+" ? pe0.index.slice(1) : "+" + pe0.index, rs0 = MP.setManualIndex(MAN, pn0, nv, today()); if (rs0.ok) { MAN = rs0.manual; MP.saveManual(localStorage, MAN); applyAuto(); render(); } }
     }
     else if (a === "star") { var e1 = R.filter(function (x) { return MP.normName(x.name) === v; })[0]; if (e1) { e1.fav = !e1.fav; saveR(); render(); } }
     else if (a === "delp") {
       var e2 = R.filter(function (x) { return MP.normName(x.name) === v; })[0];
-      if (e2 && window.confirm("Delete " + e2.name + " from saved players? Past rounds are not affected.")) { R = R.filter(function (x) { return x !== e2; }); saveR(); render(); }
+      if (e2 && window.confirm("Delete " + e2.name + " from saved players? Past rounds are not affected.")) { R = R.filter(function (x) { return x !== e2; }); saveR(); MAN = MP.removeManual(MAN, e2.name); MP.saveManual(localStorage, MAN); render(); }
     }
     else if (a === "addp") {
       var nn = MP.cleanName((app.querySelector('input[data-k="newname"]') || {}).value);
@@ -1176,8 +1513,10 @@ if (typeof module !== "undefined") module.exports = MP;
 
   app.addEventListener("input", function (e) {
     var el = e.target, k = el.getAttribute("data-k"); if (!k || k === "score") return;
-    if (k === "rname" || k === "newname") return;
+    if (k === "rname" || k === "newname" || k === "pidx") return;
     if (k === "importtxt") { impText = el.value; return; }
+    if (k === "reqname") { reqName = el.value; return; }
+    if (k === "reqcity") { reqCity = el.value; return; }
     if (k === "edname") { ed.name = el.value; return; }
     if (k === "edloc") { ed.location = el.value; return; }
     if (k === "edtee") { ed.tees[Number(el.getAttribute("data-i"))][el.getAttribute("data-f")] = el.value; return; }
@@ -1189,6 +1528,7 @@ if (typeof module !== "undefined") module.exports = MP;
     if (k === "slope" || k === "rating") { S.tee = "Custom"; S.teePar = ""; var sel = app.querySelector('select[data-k="tee"]'); if (sel) sel.value = "Custom"; }
     save();
     if (k === "indexes") {
+      if (S.idxSrc) S.idxSrc[Number(i)] = null; var tg = app.querySelector('[data-tag="' + i + '"]'); if (tg) tg.innerHTML = ""; save();
       var pl = el.parentNode.querySelector(".plus"); if (pl) pl.classList.toggle("on", el.value.trim().charAt(0) === "+");
       if (tried) {
         el.classList.toggle("bad", idxBad(Number(i)));
@@ -1199,23 +1539,29 @@ if (typeof module !== "undefined") module.exports = MP;
   });
   app.addEventListener("change", function (e) {
     var el = e.target, k = el.getAttribute("data-k"); if (!k) return;
-    if (k === "importtxt" || k === "edname" || k === "edloc" || k === "edtee") return;
+    if (k === "importtxt" || k === "reqname" || k === "reqcity" || k === "edname" || k === "edloc" || k === "edtee") return;
     if (k === "edpar") { ed.par[Number(el.getAttribute("data-i"))] = Number(el.value); render(); return; }
     if (k === "edsi") { ed.si[Number(el.getAttribute("data-i"))] = Number(el.value); render(); return; }
-    if (k === "course") { var nc = MP.findCourse(C, el.value); if (nc && nc.id !== S.courseId && confirmSwitch(nc)) switchCourse(nc); else render(); return; }
+    if (k === "course") { var nc = findC(el.value); if (nc && nc.id !== S.courseId && confirmSwitch(nc)) switchCourse(nc); else render(); return; }
     if (k === "pick") {
       var pi = Number(el.getAttribute("data-i")), pe = el.value ? MP.rosterFind(R, el.value) : null;
-      if (pe) { if (MP.normName(S.names[pi]) !== MP.normName(pe.name)) S.indexes[pi] = ""; S.names[pi] = pe.name; save(); syncRoster(); render(); }
+      if (pe) { if (MP.normName(S.names[pi]) !== MP.normName(pe.name)) { S.indexes[pi] = ""; S.idxSrc[pi] = null; } S.names[pi] = pe.name; applyAuto(); save(); syncRoster(); render(); }
       return;
     }
     if (k === "rname") {
       var key = el.getAttribute("data-v"), e4 = R.filter(function (x) { return MP.normName(x.name) === key; })[0], nn2 = MP.cleanName(el.value), clash = nn2 && MP.rosterFind(R, nn2);
-      if (e4 && nn2 && (!clash || clash === e4)) { e4.name = nn2; saveR(); }
+      if (e4 && nn2 && (!clash || clash === e4)) { MAN = MP.renameManual(MAN, e4.name, nn2); MP.saveManual(localStorage, MAN); e4.name = nn2; saveR(); }
       else if (e4 && clash) window.alert("There is already a saved player named " + clash.name + ".");
       render(); return;
     }
     if (k === "newname") return;
-    if (k === "names") { syncRoster(); return; }
+    if (k === "pidx") {
+      var pe3 = R.filter(function (x) { return MP.normName(x.name) === el.getAttribute("data-v"); })[0]; if (!pe3) return;
+      var rs = MP.setManualIndex(MAN, pe3.name, el.value, today());
+      if (!rs.ok) window.alert(rs.error); else { MAN = rs.manual; MP.saveManual(localStorage, MAN); applyAuto(); }
+      render(); return;
+    }
+    if (k === "names") { syncRoster(); if (applyAuto()) render(); return; }
     if (k === "score") { var v = el.value.trim(); var n = Number(v); setScore(Number(el.getAttribute("data-p")), v === "" || isNaN(n) ? "" : String(Math.max(1, Math.min(20, Math.round(n))))); }
     else if (el.type === "checkbox") { S[k] = el.checked; save(); render(); }
     else if (k === "tee") {
@@ -1224,7 +1570,13 @@ if (typeof module !== "undefined") module.exports = MP;
     }
   });
 
-  C = MP.loadCourses(localStorage); load(); save(); R = MP.loadRoster(localStorage); render();
+  C = MP.loadCourses(localStorage); load(); save(); R = MP.loadRoster(localStorage); MAN = MP.loadManual(localStorage);
+  (function () { var c = MP.loadIndexCache(localStorage); if (c) IDX = { file: c.file, status: "cached", fetchedAt: c.fetchedAt, error: "" }; })(); /* instant, works offline */
+  REQS = MP.loadRequests(localStorage);
+  (function () { var c = MP.loadLibraryCache(localStorage); if (c) { LIBS = { lib: c.lib, status: "cached", fetchedAt: c.fetchedAt, error: "" }; LIB = c.lib.courses; } })();
+  applyAuto(); render(); refreshIdx(true); refreshLib(true);
+  app.addEventListener("focusout", function () { setTimeout(function () { if (idxDirty && !typing()) idxApply(); }, 60); });
+  document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") { refreshIdx(false); refreshLib(false); } });
   if ("serviceWorker" in navigator && /^https?:/.test(location.protocol)) navigator.serviceWorker.register("sw.js").catch(function () {});
 })();
 </script>
