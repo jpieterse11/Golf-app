@@ -210,6 +210,27 @@
         { "name": "Silver/Gold (Women)", "rating": 71.8, "slope": 130, "par": 72, "yards": 5325 },
         { "name": "Gold (Women)", "rating": 70.1, "slope": 127, "par": 72, "yards": 5054 }
       ]
+    },
+    {
+      "id": "muirfield-village",
+      "name": "Muirfield Village Golf Club",
+      "location": "Dublin, OH",
+      "par": [4,4,4,3,5,4,5,3,4,4,5,3,4,4,5,3,4,4],
+      "handicap": [13,5,9,17,1,7,3,15,11,6,2,16,14,12,4,18,10,8],
+      "tees": [
+        { "name": "Memorial", "rating": 77.4, "slope": 155, "par": 72, "yards": 7569 },
+        { "name": "Blue", "rating": 74.2, "slope": 151, "par": 72, "yards": 6861 },
+        { "name": "White", "rating": 72.1, "slope": 144, "par": 72, "yards": 6430 },
+        { "name": "White/Green", "rating": 71.4, "slope": 140, "par": 72, "yards": 6167 },
+        { "name": "Green", "rating": 70.3, "slope": 138, "par": 72, "yards": 5982 },
+        { "name": "Grey", "rating": 69.0, "slope": 135, "par": 72, "yards": 5677 },
+        { "name": "Red", "rating": 66.6, "slope": 132, "par": 72, "yards": 5341 },
+        { "name": "White (Women)", "rating": 78.6, "slope": 154, "par": 72, "yards": 6430 },
+        { "name": "White/Green (Women)", "rating": 77.1, "slope": 151, "par": 72, "yards": 6167 },
+        { "name": "Green (Women)", "rating": 76.1, "slope": 149, "par": 72, "yards": 5982 },
+        { "name": "Grey (Women)", "rating": 74.6, "slope": 144, "par": 72, "yards": 5677 },
+        { "name": "Red (Women)", "rating": 73.2, "slope": 132, "par": 72, "yards": 5341 }
+      ]
     }
   ]
 }
