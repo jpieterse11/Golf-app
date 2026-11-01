@@ -1101,6 +1101,16 @@ var MP = (function () {
     return res;
   }
 
+  /* Results "New round": FIRST auto-save the players who played to the roster (same rule as during a round: names only, only once a
+     hole is scored, never the sample round), THEN clear the players exactly like Setup's Clear (names, indexes, idxSrc, idxOver, scores,
+     wolf picks, 3-putt marks, snake picks, hole/view). Course, tee, slope/rating/allowance, game, counts/format, bet amounts and add-on
+     switches are left alone. Returns the (possibly extended) roster. */
+  function newRoundReset(roster, state) {
+    var r = rosterAutoSave(roster, state);
+    clearPlayers(state);
+    return r;
+  }
+
   return {
     COURSE_FORMAT: COURSE_FORMAT, COURSES_KEY: COURSES_KEY, ANNANDALE: ANNANDALE, checkCourse: checkCourse, exportCourse: exportCourse, importCourse: importCourse, snapshotOf: snapshotOf,
     newCourseId: newCourseId, loadCourses: loadCourses, saveCourses: saveCourses, allCourses: allCourses, sortCourses: sortCourses, findCourse: findCourse, uniqueCourseName: uniqueCourseName,
@@ -1108,7 +1118,7 @@ var MP = (function () {
     skins: skins, birdies: birdies, vegas: vegas, vegasNumber: vegasNumber, wolfGame: wolfGame, snake: snake, roundHasSnake: roundHasSnake, togglePutt: togglePutt, setSnakeLast: setSnakeLast, emptyHoleStrs: emptyHoleStrs, undoPushSnake: undoPushSnake, wolfOf: wolfOf, wolfCount: wolfCount, wolfOrderOf: wolfOrderOf, emptyWolf: emptyWolf, normalizeGame: normalizeGame, GAMES: GAMES, firstName: firstName, teamLabel: teamLabel,
     settleAll: settleAll, undoPush: undoPush, undoPushWolf: undoPushWolf, undoPop: undoPop, diffEvents: diffEvents, holeComplete: holeComplete,
     ROSTER_KEY: ROSTER_KEY, FAVORITES: FAVORITES, normName: normName, cleanName: cleanName, validIndex: validIndex, missingIndexes: missingIndexes, seedRoster: seedRoster, parseRoster: parseRoster,
-    loadRoster: loadRoster, saveRoster: saveRoster, sortRoster: sortRoster, rosterFind: rosterFind, roundHasScores: roundHasScores, isSampleRound: isSampleRound, rosterAutoSave: rosterAutoSave,
+    loadRoster: loadRoster, saveRoster: saveRoster, sortRoster: sortRoster, rosterFind: rosterFind, roundHasScores: roundHasScores, isSampleRound: isSampleRound, rosterAutoSave: rosterAutoSave, newRoundReset: newRoundReset,
     DEFAULT_SI: DEFAULT_SI, DEFAULT_PAR: DEFAULT_PAR, TEES: TEES, HOLES: HOLES, WHEEL_PAIRS: WHEEL_PAIRS, SAMPLE: SAMPLE,
     MANUAL_KEY: MANUAL_KEY, IDXCACHE_KEY: IDXCACHE_KEY, isoDate: isoDate, validIsoDate: validIsoDate, fmtDate: fmtDate, isStaleDate: isStaleDate, cleanIndex: cleanIndex, parseIndexFile: parseIndexFile,
     loadIndexCache: loadIndexCache, fetchIndexes: fetchIndexes, loadManual: loadManual, saveManual: saveManual, setManualIndex: setManualIndex, renameManual: renameManual, removeManual: removeManual,
@@ -1481,7 +1491,7 @@ if (typeof module !== "undefined") module.exports = MP;
     h += "</div>";
     h += '<p class="sub small" style="text-align:center">Par and hole handicaps come from the course. Edit them under Manage courses.</p>';
     h += idxMsg().replace('id="idxmsg"', 'id="idxmsg2"') + '<button class="btn pri" data-act="go" data-v="hole">Start scoring ›</button><div style="height:10px"></div>' +
-      '<button class="btn dng" data-act="newround">New round (clear scores)</button><div style="height:10px"></div>' +
+      '<button class="btn dng" data-act="newround">New round (clear scores &amp; players)</button><div style="height:10px"></div>' +
       '<button class="btn" data-act="sample">Load sample wheel round (Nassau)</button>' +
       '<p class="sub small" style="text-align:center">Round scores save automatically on this device. Each index here follows the Players tab (and stays in sync); type over it to use a different index for this round only.</p>';
     return h;
@@ -1799,7 +1809,7 @@ if (typeof module !== "undefined") module.exports = MP;
       }
     }
     o += '<button class="btn" data-act="go" data-v="card" style="margin-bottom:10px">Open full scorecard</button>';
-    o += '<button class="btn dng" data-act="newround">New round (clear scores)</button>';
+    o += '<button class="btn dng" data-act="newround">New round (clear scores &amp; players)</button>';
     o += trophyCase();
     return o;
   }
@@ -1856,9 +1866,12 @@ if (typeof module !== "undefined") module.exports = MP;
     showToast([{ type: "info", text: e.k === "wolf" ? "Undid the wolf pick on #" + (e.h + 1) : e.k === "snake" ? "Undid the 3-putt change on #" + (e.h + 1) : "Undid " + lab(e.p) + " on #" + (e.h + 1) }]);
   }
   function newRound() {
-    if (!window.confirm("Start a new round? This clears all scores. Indexes are refreshed from the Players tab (blank if a player has none). Names and bet amounts are kept.")) return;
+    if (!window.confirm("Start a new round? This clears all scores and empties every player and index on Setup. Players who played are saved to your roster first. Course, tee, game and bet amounts are kept.")) return;
     var liveNR = findC(S.courseId); if (liveNR && MP.courseChanged(S, liveNR)) switchCourse(liveNR);
-    S.scores = MP.emptyScores(); S.wolf = MP.emptyWolf(); S.putts = MP.emptyHoleStrs(); S.snakeLast = MP.emptyHoleStrs(); undo = []; S.indexes = ["", "", "", "", ""]; S.idxSrc = [null, null, null, null, null]; S.idxOver = [null, null, null, null, null]; applyAuto(); S.hole = 0; S.view = 0; S.screen = "setup"; tried = false; save(); render(); window.scrollTo(0, 0);
+    var nr = MP.newRoundReset(R, S);   /* roster auto-save happens inside, before the players are cleared */
+    if (nr.changed) { R = nr.roster; saveR(); }
+    undo = []; S.screen = "setup"; tried = false; idxDirty = false; var tb = document.getElementById("toast"); if (tb) tb.innerHTML = "";
+    save(); render(); window.scrollTo(0, 0);
   }
   function sample() {
     if (!window.confirm("Replace the current round with the sample wheel round (Al, Bob, Chris, Dan, Eddie) on Annandale?")) return;
