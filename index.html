@@ -878,9 +878,9 @@ var MP = (function () {
     if (neg && n === 0) return null;
     return (neg ? "+" : "") + t;
   }
-  /* indexes.json -> {ok, errors, asOf, source, players:{normalizedName:{name,index}}, skipped:[names]} */
+  /* indexes.json -> {ok, errors, asOf, source, players:{normalizedName:{name,index}}, aliases:{normAlias:normCanonical}, skipped:[names]} */
   function parseIndexFile(input) {
-    var res = { ok: false, errors: [], asOf: "", source: "GHIN", players: {}, skipped: [] }, o = input;
+    var res = { ok: false, errors: [], asOf: "", source: "GHIN", players: {}, aliases: {}, skipped: [] }, o = input;
     if (typeof input === "string") { try { o = JSON.parse(input.replace(/^\uFEFF/, "")); } catch (e) { res.errors.push("indexes.json is not valid JSON."); return res; } }
     if (!o || typeof o !== "object" || Array.isArray(o)) { res.errors.push("indexes.json must be an object."); return res; }
     if (!validIsoDate(o.asOf)) res.errors.push('"asOf" must be a real date like 2026-10-30.');
@@ -893,7 +893,38 @@ var MP = (function () {
       if (ix === null) { res.skipped.push(name); return; }
       if (!res.players[k]) res.players[k] = { name: cleanName(name), index: ix }; /* duplicates differing only by case/spacing: first wins */
     });
+    /* optional "aliases": { "Robert Cooper": "Bob Cooper" } = same person under two names; the alias is never added to the roster on its own */
+    if (o.aliases && typeof o.aliases === "object" && !Array.isArray(o.aliases)) {
+      var raw = {}; Object.keys(o.aliases).forEach(function (a) { var ak = normName(a), ck = normName(o.aliases[a]); if (ak && ck && typeof o.aliases[a] === "string" && ak !== ck) raw[ak] = ck; });
+      Object.keys(raw).forEach(function (ak) { var c = raw[ak], n = 0; while (raw[c] && n++ < 5) c = raw[c]; if (c !== ak && !raw[c]) res.aliases[ak] = c; });
+    }
     res.ok = true; return res;
+  }
+  /* Feed players -> roster. Adds feed names missing from the roster as non-favorite saved players (names only). Never removes or changes anyone.
+     Skips: names already in the roster (normalized match), names the user deleted/renamed away (dismissed keys), alias names, and any name whose
+     alias group (via file.aliases) already has a roster member or a dismissed member. Pure; returns {roster, added, changed}. */
+  function mergeFeedPlayers(roster, file, dismissed) {
+    var res = { roster: roster.map(function (x) { return { name: x.name, fav: x.fav }; }), added: [], changed: false };
+    if (!file || !file.players) return res;
+    var al = file.aliases || {}, have = {}, gone = {};
+    function canon(k) { return al[k] || k; }
+    res.roster.forEach(function (x) { have[canon(normName(x.name))] = 1; });
+    (dismissed || []).forEach(function (k) { var n = normName(k); if (n) gone[canon(n)] = 1; });
+    Object.keys(file.players).forEach(function (k) {
+      if (al[k] || have[k] || gone[k]) return;
+      var nm = cleanName(file.players[k].name); if (!nm) return;
+      res.roster.push({ name: nm, fav: false }); res.added.push(nm); res.changed = true; have[k] = 1;
+    });
+    return res;
+  }
+  var DISMISS_KEY = "matchplay.golf.feed-dismissed.v1";
+  function loadDismissed(storage) {
+    try { var o = JSON.parse(storage.getItem(DISMISS_KEY) || "[]"); return Array.isArray(o) ? o.filter(function (x) { return typeof x === "string" && normName(x); }).map(normName) : []; } catch (e) { return []; }
+  }
+  function addDismissed(storage, name) {
+    var k = normName(name), d = loadDismissed(storage); if (!k) return d;
+    if (d.indexOf(k) < 0) { d.push(k); try { storage.setItem(DISMISS_KEY, JSON.stringify(d)); } catch (e) {} }
+    return d;
   }
   function loadIndexCache(storage) {
     try {
@@ -949,7 +980,8 @@ var MP = (function () {
   /* The index to use for a name: newest of (file asOf, manual date); a tie goes to the manual entry. null if unknown. */
   function resolveIndex(file, manual, name) {
     var k = normName(name); if (!k) return null;
-    var f = file && file.players && file.players[k] ? { index: file.players[k].index, date: file.asOf, source: file.source || "GHIN" } : null;
+    var fk = file && file.players && !file.players[k] && file.aliases && file.aliases[k] ? file.aliases[k] : k; /* an alias with no entry of its own uses its canonical player's index */
+    var f = file && file.players && file.players[fk] ? { index: file.players[fk].index, date: file.asOf, source: file.source || "GHIN" } : null;
     var m = manual && manual[k] ? { index: manual[k].index, date: manual[k].date, source: "manual" } : null;
     if (f && m) return m.date >= f.date ? m : f;
     return m || f || null;
@@ -1115,7 +1147,7 @@ var MP = (function () {
     applyTee: applyTee, applyCourse: applyCourse, courseChanged: courseChanged,
     skins: skins, birdies: birdies, vegas: vegas, vegasNumber: vegasNumber, wolfGame: wolfGame, snake: snake, roundHasSnake: roundHasSnake, togglePutt: togglePutt, setSnakeLast: setSnakeLast, emptyHoleStrs: emptyHoleStrs, undoPushSnake: undoPushSnake, wolfOf: wolfOf, wolfCount: wolfCount, wolfOrderOf: wolfOrderOf, emptyWolf: emptyWolf, normalizeGame: normalizeGame, GAMES: GAMES, firstName: firstName, teamLabel: teamLabel,
     settleAll: settleAll, undoPush: undoPush, undoPushWolf: undoPushWolf, undoPop: undoPop, diffEvents: diffEvents, holeComplete: holeComplete,
-    ROSTER_KEY: ROSTER_KEY, FAVORITES: FAVORITES, normName: normName, cleanName: cleanName, validIndex: validIndex, missingIndexes: missingIndexes, seedRoster: seedRoster, parseRoster: parseRoster,
+    mergeFeedPlayers: mergeFeedPlayers, loadDismissed: loadDismissed, addDismissed: addDismissed, DISMISS_KEY: DISMISS_KEY, ROSTER_KEY: ROSTER_KEY, FAVORITES: FAVORITES, normName: normName, cleanName: cleanName, validIndex: validIndex, missingIndexes: missingIndexes, seedRoster: seedRoster, parseRoster: parseRoster,
     loadRoster: loadRoster, saveRoster: saveRoster, sortRoster: sortRoster, rosterFind: rosterFind, roundHasScores: roundHasScores, isSampleRound: isSampleRound, rosterAutoSave: rosterAutoSave, newRoundReset: newRoundReset,
     DEFAULT_SI: DEFAULT_SI, DEFAULT_PAR: DEFAULT_PAR, TEES: TEES, HOLES: HOLES, WHEEL_PAIRS: WHEEL_PAIRS, SAMPLE: SAMPLE,
     MANUAL_KEY: MANUAL_KEY, IDXCACHE_KEY: IDXCACHE_KEY, isoDate: isoDate, validIsoDate: validIsoDate, fmtDate: fmtDate, isStaleDate: isStaleDate, cleanIndex: cleanIndex, parseIndexFile: parseIndexFile,
@@ -1176,6 +1208,8 @@ if (typeof module !== "undefined") module.exports = MP;
   function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
   function saveR() { MP.saveRoster(localStorage, R); }
   function syncRoster() { var r = MP.rosterAutoSave(R, S); if (r.changed) { R = r.roster; saveR(); } }
+  /* players listed in indexes.json show up as saved (non-favorite) players; deleted/renamed-away names are remembered and not re-added */
+  function mergeFeed() { if (!IDX.file) return; var r = MP.mergeFeedPlayers(R, IDX.file, MP.loadDismissed(localStorage)); if (r.changed) { R = r.roster; saveR(); } }
 
   /* ---------- helpers ---------- */
   function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
@@ -1247,7 +1281,7 @@ if (typeof module !== "undefined") module.exports = MP;
     if (idxBusy || (!force && Date.now() - lastIdxFetch < 4000)) return;
     idxBusy = true; if (force && S.screen === "players") render();
     MP.fetchIndexes(window.fetch ? window.fetch.bind(window) : null, localStorage, Date.now()).then(function (res) {
-      idxBusy = false; lastIdxFetch = Date.now(); IDX = res; idxApply();
+      idxBusy = false; lastIdxFetch = Date.now(); IDX = res; mergeFeed(); idxApply();
     });
   }
   function tagFor(src, date, short) { var st = MP.isStaleDate(date, today()); return '<span class="tag' + (st ? " amber" : "") + '">' + esc(src + " · " + MP.fmtDate(date, false)) + (st && !short ? " (stale)" : "") + "</span>"; }
@@ -1956,7 +1990,7 @@ if (typeof module !== "undefined") module.exports = MP;
     else if (a === "star") { var e1 = R.filter(function (x) { return MP.normName(x.name) === v; })[0]; if (e1) { e1.fav = !e1.fav; saveR(); render(); } }
     else if (a === "delp") {
       var e2 = R.filter(function (x) { return MP.normName(x.name) === v; })[0];
-      if (e2 && window.confirm("Delete " + e2.name + " from saved players? Past rounds are not affected.")) { R = R.filter(function (x) { return x !== e2; }); saveR(); MAN = MP.removeManual(MAN, e2.name); MP.saveManual(localStorage, MAN); render(); }
+      if (e2 && window.confirm("Delete " + e2.name + " from saved players? Past rounds are not affected.")) { R = R.filter(function (x) { return x !== e2; }); saveR(); MP.addDismissed(localStorage, e2.name); MAN = MP.removeManual(MAN, e2.name); MP.saveManual(localStorage, MAN); render(); }
     }
     else if (a === "addp") {
       var nn = MP.cleanName((app.querySelector('input[data-k="newname"]') || {}).value);
@@ -2010,7 +2044,7 @@ if (typeof module !== "undefined") module.exports = MP;
     }
     if (k === "rname") {
       var key = el.getAttribute("data-v"), e4 = R.filter(function (x) { return MP.normName(x.name) === key; })[0], nn2 = MP.cleanName(el.value), clash = nn2 && MP.rosterFind(R, nn2);
-      if (e4 && nn2 && (!clash || clash === e4)) { MAN = MP.renameManual(MAN, e4.name, nn2); MP.saveManual(localStorage, MAN); e4.name = nn2; saveR(); }
+      if (e4 && nn2 && (!clash || clash === e4)) { MAN = MP.renameManual(MAN, e4.name, nn2); MP.saveManual(localStorage, MAN); if (MP.normName(e4.name) !== MP.normName(nn2)) MP.addDismissed(localStorage, e4.name); e4.name = nn2; saveR(); }
       else if (e4 && clash) window.alert("There is already a saved player named " + clash.name + ".");
       render(); return;
     }
@@ -2034,7 +2068,7 @@ if (typeof module !== "undefined") module.exports = MP;
   (function () { var c = MP.loadIndexCache(localStorage); if (c) IDX = { file: c.file, status: "cached", fetchedAt: c.fetchedAt, error: "" }; })(); /* instant, works offline */
   REQS = MP.loadRequests(localStorage);
   (function () { var c = MP.loadLibraryCache(localStorage); if (c) { LIBS = { lib: c.lib, status: "cached", fetchedAt: c.fetchedAt, error: "" }; LIB = c.lib.courses; } })();
-  applyAuto(); render(); refreshIdx(true); refreshLib(true);
+  mergeFeed(); applyAuto(); render(); refreshIdx(true); refreshLib(true);
   app.addEventListener("focusout", function () { setTimeout(function () { if (idxDirty && !typing()) idxApply(); }, 60); });
   document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") { refreshIdx(false); refreshLib(false); } });
   if ("serviceWorker" in navigator && /^https?:/.test(location.protocol)) navigator.serviceWorker.register("sw.js").catch(function () {});
