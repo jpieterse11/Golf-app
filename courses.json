@@ -1,5 +1,5 @@
 {
-  "updated": "2026-10-30",
+  "updated": "2026-10-31",
   "courses": [
     {
       "id": "annandale",
@@ -125,6 +125,69 @@
         { "name": "White (Women)", "rating": 71.1, "slope": 122, "par": 70, "yards": 5425 },
         { "name": "White/Green (Women)", "rating": 69.7, "slope": 119, "par": 70, "yards": 5181 },
         { "name": "Green (Women)", "rating": 68.6, "slope": 116, "par": 70, "yards": 4974 }
+      ]
+    },
+    {
+      "id": "mayacoo-lakes",
+      "name": "Mayacoo Lakes Country Club",
+      "location": "West Palm Beach, FL",
+      "par": [4,4,3,4,5,4,3,4,5,4,4,4,5,3,4,4,3,4],
+      "handicap": [11,3,13,1,5,7,17,9,15,12,8,10,2,18,6,14,16,4],
+      "tees": [
+        { "name": "Gold", "rating": 74.9, "slope": 151, "par": 71, "yards": 6894 },
+        { "name": "Orange", "rating": 73.2, "slope": 148, "par": 71, "yards": 6460 },
+        { "name": "Black", "rating": 72.1, "slope": 146, "par": 71, "yards": 6153 },
+        { "name": "White", "rating": 70.5, "slope": 139, "par": 71, "yards": 5884 },
+        { "name": "Green", "rating": 68.5, "slope": 136, "par": 71, "yards": 5463 },
+        { "name": "Red", "rating": 65.5, "slope": 129, "par": 71, "yards": 4945 },
+        { "name": "Platinum", "rating": 63.6, "slope": 126, "par": 71, "yards": 4341 },
+        { "name": "Black (Women)", "rating": 77.5, "slope": 146, "par": 72, "yards": 6153 },
+        { "name": "White (Women)", "rating": 76.0, "slope": 140, "par": 72, "yards": 5884 },
+        { "name": "Green (Women)", "rating": 73.6, "slope": 136, "par": 72, "yards": 5463 },
+        { "name": "Red (Women)", "rating": 70.9, "slope": 125, "par": 72, "yards": 4945 },
+        { "name": "Platinum (Women)", "rating": 67.4, "slope": 122, "par": 72, "yards": 4341 }
+      ]
+    },
+    {
+      "id": "atlanta-national",
+      "name": "Atlanta National Golf Club",
+      "location": "Milton, GA",
+      "par": [4,3,5,4,4,3,4,4,5,4,4,3,5,4,5,4,3,4],
+      "handicap": [15,11,7,9,1,17,5,3,13,8,10,6,14,2,12,16,18,4],
+      "tees": [
+        { "name": "Black", "rating": 74.6, "slope": 147, "par": 72, "yards": 6966 },
+        { "name": "Sarazen", "rating": 73.4, "slope": 143, "par": 72, "yards": 6711 },
+        { "name": "Burgundy", "rating": 72.2, "slope": 140, "par": 72, "yards": 6465 },
+        { "name": "Jones", "rating": 71.2, "slope": 135, "par": 72, "yards": 6178 },
+        { "name": "Blue", "rating": 70.1, "slope": 130, "par": 72, "yards": 5917 },
+        { "name": "Silver/Blue", "rating": 68.4, "slope": 126, "par": 72, "yards": 5569 },
+        { "name": "Silver", "rating": 67.3, "slope": 124, "par": 72, "yards": 5304 },
+        { "name": "Silver/Gold", "rating": 65.9, "slope": 120, "par": 72, "yards": 5002 },
+        { "name": "Gold", "rating": 64.5, "slope": 116, "par": 72, "yards": 4705 },
+        { "name": "Blue (Women)", "rating": 75.7, "slope": 144, "par": 72, "yards": 5917 },
+        { "name": "Silver (Women)", "rating": 72.4, "slope": 139, "par": 72, "yards": 5304 },
+        { "name": "Silver/Gold (Women)", "rating": 70.9, "slope": 131, "par": 72, "yards": 5002 },
+        { "name": "Gold (Women)", "rating": 69.4, "slope": 125, "par": 72, "yards": 4705 }
+      ]
+    },
+    {
+      "id": "watters-creek-traditions",
+      "name": "The Courses at Watters Creek - Traditions",
+      "location": "Plano, TX",
+      "par": [4,4,3,5,4,4,5,4,3,4,3,4,4,5,4,3,4,5],
+      "handicap": [4,18,16,12,8,2,10,6,14,15,13,17,5,7,11,9,1,3],
+      "tees": [
+        { "name": "Black", "rating": 73.8, "slope": 137, "par": 72, "yards": 7015 },
+        { "name": "Blue", "rating": 72.0, "slope": 132, "par": 72, "yards": 6626 },
+        { "name": "White", "rating": 70.1, "slope": 128, "par": 72, "yards": 6212 },
+        { "name": "WCSGA", "rating": 68.6, "slope": 127, "par": 72, "yards": 5880 },
+        { "name": "Gold", "rating": 67.1, "slope": 122, "par": 72, "yards": 5636 },
+        { "name": "Red", "rating": 64.3, "slope": 116, "par": 72, "yards": 4979 },
+        { "name": "Black (Women)", "rating": 80.6, "slope": 148, "par": 72, "yards": 7015 },
+        { "name": "Blue (Women)", "rating": 78.5, "slope": 142, "par": 72, "yards": 6626 },
+        { "name": "White (Women)", "rating": 76.2, "slope": 137, "par": 72, "yards": 6212 },
+        { "name": "Gold (Women)", "rating": 73.0, "slope": 130, "par": 72, "yards": 5636 },
+        { "name": "Red (Women)", "rating": 69.1, "slope": 120, "par": 72, "yards": 4979 }
       ]
     }
   ]
