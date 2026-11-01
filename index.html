@@ -1530,7 +1530,7 @@ if (typeof module !== "undefined") module.exports = MP;
     } else {
       h += '<div class="card ixbar amber"><div class="grow"><b>No index list loaded</b><div class="sub small">' + (idxBusy ? "Checking…" : "Couldn't load indexes.json (offline?). Type an index to set one by hand.") + '</div></div><button class="btn" data-act="refreshidx"' + (idxBusy ? " disabled aria-busy=\"true\"" : "") + ">" + (idxBusy ? '<span class="spin"></span>Refreshing' : "Refresh") + "</button></div>";
     }
-    h += '<p class="sub">Indexes come from GHIN and are refreshed on game days. Tap Refresh to pull the latest list. Type a number in the Index column to set one by hand: it stays until a Refresh brings in a GHIN list that is as new or newer, unless you lock it (tap its “manual” tag to pin 🔒). They fill in on Setup when you pick a player. Tap ☆ to make a favorite. Anyone who plays a round is saved here automatically.</p>';
+    h += '<p class="sub">GHIN indexes update automatically every Saturday at 5 AM (Pacific). Tap Refresh to pull the latest list anytime. Type a number in the Index column to set one by hand: it is replaced at the next update unless you pin it (tap its “manual” tag to pin 🔒). They fill in on Setup when you pick a player. Tap ☆ to make a favorite. Anyone who plays a round is saved here automatically.</p>';
     h += '<h2>Saved players (' + R.length + ")</h2>";
     if (!R.length) h += '<div class="msg">No saved players yet. Add one below, or play a round.</div>';
     else h += '<div class="card"><div class="prh"><span style="width:48px"></span><span class="grow">Name</span><span style="width:92px;text-align:center">Index</span><span style="width:48px"></span></div>' + MP.sortRoster(R).map(function (x) {
