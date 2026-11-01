@@ -22,11 +22,9 @@ body{padding:env(safe-area-inset-top) 0 0}
 #app{max-width:520px;margin:0 auto;padding:12px 12px calc(84px + env(safe-area-inset-bottom))}
 h1{font-size:22px;margin:4px 2px 12px}
 .hero.has{display:flex;align-items:flex-end;min-height:124px;margin:0 0 12px;padding:12px 14px;border-radius:14px;overflow:hidden;color:#fff;background:linear-gradient(90deg,rgba(6,16,10,.72) 0%,rgba(6,16,10,.35) 55%,rgba(6,16,10,.12) 100%),linear-gradient(0deg,rgba(6,16,10,.6) 0%,rgba(6,16,10,0) 65%),url(banner.jpg) 72% 58%/cover no-repeat,#1d3226;border:1px solid var(--line)}
-.trophies{margin:14px 0 6px}
-.trophies .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;align-items:start}
-.trophies figure{margin:0;background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
-.trophies img{display:block;width:100%;height:auto}
-.trophies figcaption{padding:6px 12px 8px;font-size:13px;color:var(--sub)}
+.resphoto{margin:14px 0 6px}
+.resphoto figure{margin:0 auto;max-width:360px;background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.resphoto img{display:block;width:100%;height:auto}
 .hero.has h1{margin:0}
 .hero.has h1{color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.7),0 0 12px rgba(0,0,0,.35)}
 @media (prefers-color-scheme:dark){.hero.has{background:linear-gradient(90deg,rgba(4,10,6,.8) 0%,rgba(4,10,6,.45) 55%,rgba(4,10,6,.25) 100%),linear-gradient(0deg,rgba(4,10,6,.65) 0%,rgba(4,10,6,.1) 65%),url(banner.jpg) 72% 58%/cover no-repeat,#0f1812}}
@@ -1739,13 +1737,9 @@ if (typeof module !== "undefined") module.exports = MP;
         '<td class="' + cls(all.total[p]) + '"><b>' + MP.signedMoney(all.total[p]) + "</b></td></tr>";
     }).join("") + "</table>" + (note ? '<p class="sub small">' + note + "</p>" : "") + "</div>";
   }
-  // Photos at the very bottom of Results. A failed image hides its own card (and the whole section if none load).
-  function trophyCase() {
-    var hide = "var s=this.closest(\'.trophies\');this.closest(\'figure\').style.display=\'none\';if(!s.querySelector(\'figure:not([style*=none])\'))s.style.display=\'none\'";
-    function fig(src, alt, cap) { return '<figure><img src="' + src + '" alt="' + alt + '" loading="lazy" decoding="async" onerror="' + hide + '"><figcaption>' + cap + "</figcaption></figure>"; }
-    return '<div class="trophies"><h2>Trophy case</h2><div class="grid">' +
-      fig("trophy-diablo.jpg", "Two golfers holding framed red El Diablo pennant trophies under a tent at night", "El Diablo") +
-      fig("trophy-day.jpg", "Two golfers holding glass trophies on the course in the daytime", "Champions") + "</div></div>";
+  // One photo at the very bottom of Results. If it fails to load the whole section hides.
+  function resultsPhoto() {
+    return '<div class="resphoto"><h2>Pay up! 💸</h2><figure><img src="results-photo.jpg" alt="A smiling man in a navy shirt with $100 bills flying around him" loading="lazy" decoding="async" onerror="this.closest(\'.resphoto\').style.display=\'none\'"></figure></div>';
   }
   function viewResults() {
     var calc = MP.compute(S), set = MP.settle(S, calc), g = S.game, played = MP.roundHasScores(S);
@@ -1810,7 +1804,7 @@ if (typeof module !== "undefined") module.exports = MP;
     }
     o += '<button class="btn" data-act="go" data-v="card" style="margin-bottom:10px">Open full scorecard</button>';
     o += '<button class="btn dng" data-act="newround">New round (clear scores &amp; players)</button>';
-    o += trophyCase();
+    o += resultsPhoto();
     return o;
   }
 
