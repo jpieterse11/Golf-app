@@ -1,7 +1,7 @@
-const C='golfscoring-v21';
+const C='golfscoring-v22';
 const FILES=['./','./index.html','./manifest.json','./icon-192.png','./icon-512.png','./icon-180.png','./icon.svg','./banner.jpg','./results-photo.jpg','./course-banner.jpg'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(C).then(c=>c.addAll(FILES)).then(()=>self.skipWaiting()));});
-// activate: delete every cache except the current one, which includes the old matchplay-* caches (app was renamed Golf Scoring).
+// activate: delete every cache except the current one, which includes the old matchplay-* caches (app was renamed Golf Scoring Games).
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==C).map(x=>caches.delete(x)))).then(()=>self.clients.claim()));});
 self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;
 // indexes.json and courses.json: network only, straight to the network (bypasses the HTTP cache too). Never cached here; the page keeps its own last-good copy in localStorage.
