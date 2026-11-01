@@ -310,6 +310,7 @@ var MP = (function () {
   function normalizeGame(state) {
     var d = defaultState();
     if (GAMES.indexOf(state.game) < 0) state.game = "nassau";
+    if (typeof state.autoPress !== "boolean") state.autoPress = state.autoPress === undefined || state.autoPress === null ? d.autoPress : !(state.autoPress === "false" || state.autoPress === 0 || state.autoPress === "0" || state.autoPress === "off"); /* missing = default on; an explicit off stays off */
     var sn = Math.round(Number(state.skinN)); state.skinN = sn >= 2 && sn <= 5 ? sn : 4;
     var bn = Math.round(Number(state.stbN)); state.stbN = bn >= 1 && bn <= 5 ? bn : 4;
     if (!(Number(state.stbAmt) >= 0) || String(state.stbAmt == null ? "" : state.stbAmt).trim() === "") state.stbAmt = d.stbAmt; /* older saves have no Stableford fields */
@@ -1195,6 +1196,7 @@ var MP = (function () {
   function newRoundReset(roster, state) {
     var r = rosterAutoSave(roster, state);
     clearPlayers(state);
+    state.autoPress = defaultState().autoPress; /* New round: automatic presses back to the default (on, at 2 down) */
     return r;
   }
 
@@ -1496,7 +1498,7 @@ if (typeof module !== "undefined") module.exports = MP;
     return h;
   }
   var GAME_BLURB = {
-    nassau: "Front 9, back 9 and overall bets, with automatic presses.",
+    nassau: "Front 9, back 9 and overall bets, with optional automatic presses (on by default, at 2 down).",
     skins: "Everyone plays for themselves. The lowest score alone on a hole wins a skin.",
     vegas: "Two teams of two. Each hole a team's two scores make one number (4 and 5 = 45); the lower number wins the difference in points.",
     stableford: "Points per hole from your net score, played off your own full handicap: net birdie 3, par 2, bogey 1, double bogey or worse 0 (eagle 4). Highest total wins; every pair settles the points difference.",
@@ -1515,7 +1517,7 @@ if (typeof module !== "undefined") module.exports = MP;
     var o = "";
     if (S.game === "nassau") {
       o += '<div class="grid3">' + txt("Front 9 $", "front", S.front, "", "decimal") + txt("Back 9 $", "back", S.back, "", "decimal") + txt("Overall $", "overall", S.overall, "", "decimal") + "</div>" +
-        sw("Automatic press when 2 down", "autoPress", S.autoPress) + '<p class="sub small">A press starts on the next hole and lasts to the end of that nine. Overall has no presses.</p>';
+        sw("Automatic press when 2 down", "autoPress", S.autoPress) + '<p class="sub small">' + (S.autoPress ? "On (default): when a side goes 2 down in the front or back nine, a press starts on the next hole and lasts to the end of that nine. Overall has no presses." : "Off: only the front, back and overall bets are played. No presses are created or shown.") + "</p>";
     } else if (S.game === "skins") {
       o += '<div class="grid2">' + txt("$ per skin", "skinAmt", S.skinAmt, "", "decimal") + "<div></div></div>" +
         '<label class="f" style="margin-top:10px">Skins are won on</label>' + seg("skinMode", [["net", "Net (with strokes)"], ["gross", "Gross"]], S.skinMode) + sw("Ties carry over", "skinCarry", S.skinCarry);
@@ -1821,7 +1823,7 @@ if (typeof module !== "undefined") module.exports = MP;
       }).join("") + "</tr>";
     }
     o += "</table></div>";
-    o += '<div class="legend">' + (snk ? "🐍 = snake moved to that player (bold initials = last to 3-putt). " + (snk.holder === null ? "Nobody has the snake yet" : "Snake holder now: <b>" + esc(lab(snk.holder)) + "</b>") + ". " : "") + '● = stroke on that hole · ○ birdie · ◎ eagle · □ bogey or worse · tap a hole number or a score to edit it · scroll sideways for more' + (bd ? " · ★ eagle (counts double)" : "") + (S.game === "nassau" ? ". Presses show as extra rows (F P1 = front press 1). A box like 3&amp;2 means that bet was decided." : S.game === "vegas" ? ". ↺ = number flipped by a birdie." : S.game === "wolf" ? ". ? = the wolf hasn't picked yet (hole not counted)." : S.game === "stableford" ? ". ▽ = stroke given back (plus handicap). Stableford points per hole: net birdie 3, par 2, bogey 1, double bogey or worse 0." : ".") + "</div>";
+    o += '<div class="legend">' + (snk ? "🐍 = snake moved to that player (bold initials = last to 3-putt). " + (snk.holder === null ? "Nobody has the snake yet" : "Snake holder now: <b>" + esc(lab(snk.holder)) + "</b>") + ". " : "") + '● = stroke on that hole · ○ birdie · ◎ eagle · □ bogey or worse · tap a hole number or a score to edit it · scroll sideways for more' + (bd ? " · ★ eagle (counts double)" : "") + (S.game === "nassau" ? (S.autoPress ? ". Presses show as extra rows (F P1 = front press 1). " : ". ") + "A box like 3&amp;2 means that bet was decided." : S.game === "vegas" ? ". ↺ = number flipped by a birdie." : S.game === "wolf" ? ". ? = the wolf hasn't picked yet (hole not counted)." : S.game === "stableford" ? ". ▽ = stroke given back (plus handicap). Stableford points per hole: net birdie 3, par 2, bogey 1, double bogey or worse 0." : ".") + "</div>";
     o += '<button class="btn" data-act="go" data-v="results">See results and settle up</button>';
     return o;
   }
@@ -1857,7 +1859,7 @@ if (typeof module !== "undefined") module.exports = MP;
   function viewResults() {
     var calc = MP.compute(S), set = MP.settle(S, calc), g = S.game, played = MP.roundHasScores(S);
     var all = MP.settleAll(S, calc), GN = { nassau: "Nassau", skins: "Skins", vegas: "Las Vegas", wolf: "Wolf", stableford: "Stableford" }[g];
-    var o = "<h1>Results</h1>" + courseLine() + '<div class="sub small" style="margin:-2px 2px 8px">Game: <b>' + GN + "</b>" + (S.birdOn ? " + Birdies add-on" : "") + (S.snakeOn ? " + Snake add-on" : "") + "</div>";
+    var o = "<h1>Results</h1>" + courseLine() + '<div class="sub small" style="margin:-2px 2px 8px">Game: <b>' + GN + "</b>" + (S.game === "nassau" ? (S.autoPress ? " (automatic presses on, at 2 down)" : " (no presses)") : "") + (S.birdOn ? " + Birdies add-on" : "") + (S.snakeOn ? " + Snake add-on" : "") + "</div>";
     if (g === "nassau") {
       var vi = Math.min(Number(S.view) || 0, Math.max(calc.results.length - 1, 0)), shown = calc.results[vi];
       if (calc.results.length > 1) o += seg("view", calc.results.map(function (r, k) { return [k, "vs " + sn(r.sides[1])]; }), vi);
