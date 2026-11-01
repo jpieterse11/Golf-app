@@ -110,6 +110,8 @@ input.bad{border-color:var(--red);border-width:2px;background:var(--warn)}
 .plus.on{background:var(--green);color:var(--greenfg);border-color:var(--green)}
 #toast{position:fixed;left:10px;right:10px;top:calc(8px + env(safe-area-inset-top));z-index:30;pointer-events:none;display:flex;flex-direction:column;gap:6px;max-width:500px;margin:0 auto}
 .tt{pointer-events:none;background:var(--text);color:var(--bg);border-radius:12px;padding:10px 12px;font-size:15px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.35);border-left:6px solid var(--green);animation:tin .18s ease-out}
+.tag.lockt{background:none;border:1px solid var(--line);border-radius:8px;padding:3px 6px;font-family:inherit;color:var(--ok);cursor:pointer}.tag.lockt.on{background:var(--soft);color:var(--text)}
+.spin{display:inline-block;width:13px;height:13px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spn .7s linear infinite;vertical-align:-2px;margin-right:6px}@keyframes spn{to{transform:rotate(360deg)}}
 .tt.vegas{border-left-color:#14b8a6}.tt.wolf{border-left-color:#8b5e34}
 .tt.closeout{border-left-color:#d99a00}.tt.press{border-left-color:#e0652d}.tt.skin{border-left-color:#3b82f6}.tt.birdie{border-left-color:#a855f7}
 @keyframes tin{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
@@ -997,7 +999,7 @@ var MP = (function () {
   /* Network first (no-store). A good response is remembered in storage; on any failure the last good copy is used. Resolves {file|null, status: "live"|"cached"|"none", fetchedAt, error}. */
   function fetchIndexes(fetchFn, storage, nowMs, url) {
     var cached = loadIndexCache(storage);
-    return Promise.resolve().then(function () { return fetchFn(url || "./indexes.json", { cache: "no-store" }); })
+    return Promise.resolve().then(function () { return fetchFn(url || "./indexes.json?t=" + nowMs, { cache: "no-store" }); })
       .then(function (r) { if (!r || !r.ok) throw new Error("HTTP " + (r ? r.status : "error")); return r.text(); })
       .then(function (text) {
         var f = parseIndexFile(text); if (!f.ok) throw new Error(f.errors.join(" "));
@@ -1009,14 +1011,14 @@ var MP = (function () {
         return cached ? { file: cached.file, status: "cached", fetchedAt: cached.fetchedAt, error: msg } : { file: null, status: "none", fetchedAt: null, error: msg };
       });
   }
-  /* manual overrides: { normalizedName: {name, index, date} } */
+  /* manual overrides: { normalizedName: {name, index, date, lock?} }. lock = the player is pinned: a Refresh never replaces it. */
   function loadManual(storage) {
     var out = {};
     try {
       var o = JSON.parse(storage.getItem(MANUAL_KEY) || "{}");
       if (o && typeof o === "object" && !Array.isArray(o)) Object.keys(o).forEach(function (k) {
         var x = o[k], ix = x && cleanIndex(x.index), nk = normName(x && x.name != null ? x.name : k);
-        if (x && ix !== null && nk && validIsoDate(x.date)) out[nk] = { name: cleanName(x.name != null ? x.name : k), index: ix, date: x.date };
+        if (x && ix !== null && nk && validIsoDate(x.date)) out[nk] = { name: cleanName(x.name != null ? x.name : k), index: ix, date: x.date }; if (x.lock === true) out[nk].lock = true;
       });
     } catch (e) {}
     return out;
@@ -1029,8 +1031,37 @@ var MP = (function () {
     if (String(value == null ? "" : value).trim() === "") { delete out[k]; return { ok: true, manual: out, error: "" }; }
     var ix = cleanIndex(String(value));
     if (ix === null) return { ok: false, manual: out, error: "Enter an index like 12.4, or +1.2 for a plus handicap." };
-    out[k] = { name: cleanName(name), index: ix, date: today || isoDate() };
+    var wasLocked = !!(manual && manual[k] && manual[k].lock);
+    out[k] = { name: cleanName(name), index: ix, date: today || isoDate() }; if (wasLocked) out[k].lock = true;
     return { ok: true, manual: out, error: "" };
+  }
+  /* Pin or unpin a hand-typed index. Only a pinned value survives a Refresh that brings in an equal or newer GHIN date. */
+  function setManualLock(manual, name, lock) {
+    var k = normName(name), out = {}; Object.keys(manual || {}).forEach(function (x) { out[x] = manual[x]; });
+    if (out[k]) { out[k] = { name: out[k].name, index: out[k].index, date: out[k].date }; if (lock) out[k].lock = true; }
+    return out;
+  }
+  /* Run when the user taps Refresh and the feed is live: drops every UNPINNED hand-typed index that is not newer than the feed's date,
+     for players the feed knows (so GHIN wins). Returns { manual, cleared: [names] }. */
+  function pruneManual(manual, file) {
+    var out = {}, cleared = [];
+    Object.keys(manual || {}).forEach(function (k) {
+      var m = manual[k], inFeed = file && resolveIndex(file, null, m.name);
+      if (inFeed && !m.lock && m.date <= file.asOf) cleared.push(m.name); else out[k] = m;
+    });
+    return { manual: out, cleared: cleared };
+  }
+  /* { normName: index } for each name, as the Players tab would show it. */
+  function indexSnapshot(file, manual, names) {
+    var o = {}; (names || []).forEach(function (n) { var r = resolveIndex(file, manual, n); o[normName(n)] = r ? r.index : ""; }); return o;
+  }
+  /* The message shown after the user taps Refresh. info: { status: "live"|"cached"|"none", file, changed: [names], kept: n } -> { type, text } */
+  function refreshReport(info) {
+    var f = info.file, asOf = f ? fmtDate(f.asOf, false) : "", src = f && f.source || "GHIN", n = (info.changed || []).length;
+    if (info.status !== "live") return { type: "closeout", text: "Couldn't reach server \u2014 offline." + (f ? " Showing the saved " + src + " list (as of " + asOf + ")." : " No saved indexes yet.") };
+    var keep = info.kept ? " \u00b7 kept " + info.kept + " pinned by hand" : "";
+    if (n) return { type: "refresh", text: "Updated " + n + " player" + (n === 1 ? "" : "s") + " \u00b7 " + src + " as of " + asOf + keep };
+    return { type: "refresh", text: "All up to date (as of " + asOf + ")" + keep };
   }
   function renameManual(manual, oldName, newName) {
     var out = {}; Object.keys(manual || {}).forEach(function (x) { out[x] = manual[x]; });
@@ -1044,8 +1075,8 @@ var MP = (function () {
     var k = normName(name); if (!k) return null;
     var fk = file && file.players && !file.players[k] && file.aliases && file.aliases[k] ? file.aliases[k] : k; /* an alias with no entry of its own uses its canonical player's index */
     var f = file && file.players && file.players[fk] ? { index: file.players[fk].index, date: file.asOf, source: file.source || "GHIN" } : null;
-    var m = manual && manual[k] ? { index: manual[k].index, date: manual[k].date, source: "manual" } : null;
-    if (f && m) return m.date >= f.date ? m : f;
+    var m = manual && manual[k] ? { index: manual[k].index, date: manual[k].date, source: "manual" } : null; if (m && manual[k].lock) m.locked = true;
+    if (f && m) return m.locked || m.date >= f.date ? m : f; /* a pinned (locked) value always wins; otherwise the newest date wins, ties to the hand-typed value until a Refresh clears it */
     return m || f || null;
   }
   /* Keeps every player's round index (state.indexes, which all scoring reads) equal to the Players-tab value for that name: the newest of the
@@ -1215,7 +1246,7 @@ var MP = (function () {
     DEFAULT_SI: DEFAULT_SI, DEFAULT_PAR: DEFAULT_PAR, TEES: TEES, HOLES: HOLES, WHEEL_PAIRS: WHEEL_PAIRS, SAMPLE: SAMPLE,
     MANUAL_KEY: MANUAL_KEY, IDXCACHE_KEY: IDXCACHE_KEY, isoDate: isoDate, validIsoDate: validIsoDate, fmtDate: fmtDate, isStaleDate: isStaleDate, cleanIndex: cleanIndex, parseIndexFile: parseIndexFile,
     loadIndexCache: loadIndexCache, fetchIndexes: fetchIndexes, loadManual: loadManual, saveManual: saveManual, setManualIndex: setManualIndex, renameManual: renameManual, removeManual: removeManual,
-    resolveIndex: resolveIndex, autofillIndexes: autofillIndexes, syncIndexes: syncIndexes, roundHasContent: roundHasContent,
+    resolveIndex: resolveIndex, setManualLock: setManualLock, pruneManual: pruneManual, indexSnapshot: indexSnapshot, refreshReport: refreshReport, autofillIndexes: autofillIndexes, syncIndexes: syncIndexes, roundHasContent: roundHasContent,
     LIB_KEY: LIB_KEY, REQ_KEY: REQ_KEY, parseCourseLibrary: parseCourseLibrary, loadLibraryCache: loadLibraryCache, fetchCourseLibrary: fetchCourseLibrary,
     loadRequests: loadRequests, saveRequests: saveRequests, addRequest: addRequest, removeRequest: removeRequest, requestText: requestText, requestMatch: requestMatch, nameTokens: nameTokens, clearPlayers: clearPlayers,
     emptyScores: emptyScores, defaultState: defaultState, strokesOn: strokesOn, parseIndex: parseIndex, money: money, signedMoney: signedMoney,
@@ -1340,13 +1371,25 @@ if (typeof module !== "undefined") module.exports = MP;
     if (typing()) { idxDirty = true; return; }
     idxDirty = false; applyAuto(); if (S.screen === "setup" || S.screen === "players" || S.screen === "hole" || S.screen === "card" || S.screen === "results") render();
   }
-  function refreshIdx(force) {
+  function refreshIdx(force, notify) {
     if (idxBusy || (!force && Date.now() - lastIdxFetch < 4000)) return;
     idxBusy = true; if (force && S.screen === "players") render();
+    var oldFile = IDX.file, oldMan = MAN;
     MP.fetchIndexes(window.fetch ? window.fetch.bind(window) : null, localStorage, Date.now()).then(function (res) {
-      idxBusy = false; lastIdxFetch = Date.now(); IDX = res; mergeFeed(); idxApply();
+      idxBusy = false; lastIdxFetch = Date.now(); IDX = res;
+      if (notify && res.status === "live") { var pr = MP.pruneManual(MAN, res.file); if (pr.cleared.length) { MAN = pr.manual; MP.saveManual(localStorage, MAN); } }
+      mergeFeed();
+      if (notify) {
+        var names = R.map(function (x) { return x.name; }), a = MP.indexSnapshot(oldFile, oldMan, names), b = MP.indexSnapshot(res.file, MAN, names), kept = 0;
+        var changed = R.filter(function (x) { var k = MP.normName(x.name); return a[k] !== b[k]; }).map(function (x) { return x.name; });
+        R.forEach(function (x) { var r = MP.resolveIndex(res.file, MAN, x.name), fr = MP.resolveIndex(res.file, null, x.name); if (r && r.source === "manual" && fr && fr.index !== r.index) kept++; });
+        idxMsgOut = MP.refreshReport({ status: res.status, file: res.file, changed: changed, kept: kept });
+      }
+      idxApply();
+      if (notify && idxMsgOut) { var mo = idxMsgOut; idxMsgOut = null; showToast([mo]); }
     });
   }
+  var idxMsgOut = null;
   function tagFor(src, date, short) { var st = MP.isStaleDate(date, today()); return '<span class="tag' + (st ? " amber" : "") + '">' + esc(src + " · " + MP.fmtDate(date, false)) + (st && !short ? " (stale)" : "") + "</span>"; }
   function idxTime(ms) { var d = new Date(ms); return MP.fmtDate(MP.isoDate(d), false) + ", " + d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
   function idxBad(p) { return S.useHcp && !MP.validIndex(S.indexes[p]); }
@@ -1483,11 +1526,11 @@ if (typeof module !== "undefined") module.exports = MP;
       h += '<div class="card ixbar' + (st ? " amber" : "") + '"><div class="grow"><b>' + esc(f.source) + " indexes as of " + esc(MP.fmtDate(f.asOf, true)) + "</b>" +
         (st ? ' <span class="badge" style="background:var(--amber);color:#fff">stale</span><div class="small" style="color:var(--amber);font-weight:600">Not today (' + esc(MP.fmtDate(td, true)) + "). Ask for a refresh before you play.</div>" : '<div class="small" style="color:var(--ok);font-weight:600">Up to date for today</div>') +
         '<div class="sub small">' + (IDX.status === "live" ? "Checked " + esc(idxTime(IDX.fetchedAt)) : IDX.status === "cached" ? "Offline: showing the copy saved " + esc(idxTime(IDX.fetchedAt)) : "") + "</div></div>" +
-        '<button class="btn" data-act="refreshidx"' + (idxBusy ? " disabled" : "") + ">" + (idxBusy ? "…" : "Refresh") + "</button></div>";
+        '<button class="btn" data-act="refreshidx"' + (idxBusy ? " disabled aria-busy=\"true\"" : "") + ">" + (idxBusy ? '<span class="spin"></span>Refreshing' : "Refresh") + "</button></div>";
     } else {
-      h += '<div class="card ixbar amber"><div class="grow"><b>No index list loaded</b><div class="sub small">' + (idxBusy ? "Checking…" : "Couldn't load indexes.json (offline?). Type an index to set one by hand.") + '</div></div><button class="btn" data-act="refreshidx"' + (idxBusy ? " disabled" : "") + ">" + (idxBusy ? "…" : "Refresh") + "</button></div>";
+      h += '<div class="card ixbar amber"><div class="grow"><b>No index list loaded</b><div class="sub small">' + (idxBusy ? "Checking…" : "Couldn't load indexes.json (offline?). Type an index to set one by hand.") + '</div></div><button class="btn" data-act="refreshidx"' + (idxBusy ? " disabled aria-busy=\"true\"" : "") + ">" + (idxBusy ? '<span class="spin"></span>Refreshing' : "Refresh") + "</button></div>";
     }
-    h += '<p class="sub">Indexes come from GHIN and are refreshed on game days. Type a number in the Index column to override one by hand (the newest date wins). They fill in on Setup when you pick a player. Tap ☆ to make a favorite. Anyone who plays a round is saved here automatically.</p>';
+    h += '<p class="sub">Indexes come from GHIN and are refreshed on game days. Tap Refresh to pull the latest list. Type a number in the Index column to set one by hand: it stays until a Refresh brings in a GHIN list that is as new or newer, unless you lock it (tap its “manual” tag to pin 🔒). They fill in on Setup when you pick a player. Tap ☆ to make a favorite. Anyone who plays a round is saved here automatically.</p>';
     h += '<h2>Saved players (' + R.length + ")</h2>";
     if (!R.length) h += '<div class="msg">No saved players yet. Add one below, or play a round.</div>';
     else h += '<div class="card"><div class="prh"><span style="width:48px"></span><span class="grow">Name</span><span style="width:92px;text-align:center">Index</span><span style="width:48px"></span></div>' + MP.sortRoster(R).map(function (x) {
@@ -1495,7 +1538,7 @@ if (typeof module !== "undefined") module.exports = MP;
       return '<div class="pr"><button class="star' + (x.fav ? " on" : "") + '" data-act="star" data-v="' + esc(k) + '" aria-label="' + (x.fav ? "Remove favorite" : "Make favorite") + '">' + (x.fav ? "★" : "☆") + "</button>" +
         '<input type="text" autocomplete="off" autocapitalize="words" spellcheck="false" data-k="rname" data-v="' + esc(k) + '" value="' + esc(x.name) + '" aria-label="Player name (tap to rename)">' +
         '<div class="ix"><input type="text" inputmode="decimal" autocomplete="off" autocapitalize="off" spellcheck="false" data-k="pidx" data-v="' + esc(k) + '" value="' + esc(r ? r.index : "") + '" placeholder="–" aria-label="Handicap index for ' + esc(x.name) + '">' +
-        (r ? '<button class="mini" data-act="pplus" data-v="' + esc(k) + '" aria-label="Toggle plus handicap" title="Plus handicap">+/−</button>' : "") + "<div>" + (r ? tagFor(r.source, r.date, true) : '<span class="tag amber">no index</span>') + "</div></div>" +
+        (r ? '<button class="mini" data-act="pplus" data-v="' + esc(k) + '" aria-label="Toggle plus handicap" title="Plus handicap">+/−</button>' : "") + "<div>" + (r ? (r.source === "manual" ? '<button class="tag lockt' + (r.locked ? " on" : "") + '" data-act="plock" data-v="' + esc(k) + '" aria-label="' + (r.locked ? "Unlock" : "Lock") + ' the hand-typed index for ' + esc(x.name) + '" aria-pressed="' + (r.locked ? "true" : "false") + '">' + (r.locked ? "🔒 manual" : "manual · " + esc(MP.fmtDate(r.date, false))) + "</button>" : tagFor(r.source, r.date, true)) : '<span class="tag amber">no index</span>') + "</div></div>" +
         '<button class="del" data-act="delp" data-v="' + esc(k) + '" aria-label="Delete ' + esc(x.name) + '">🗑</button></div>';
     }).join("") + "</div>";
     h += '<h2>Add a player</h2><div class="card">' + txt("Name", "newname", "", "Full name") + '<div style="height:10px"></div><button class="btn pri" data-act="addp">Add player</button></div>';
@@ -2068,7 +2111,8 @@ if (typeof module !== "undefined") module.exports = MP;
       var f = app.querySelector('input[data-k="indexes"][data-i="' + pi2 + '"]'); if (f) f.focus();
     }
     else if (a === "idxreset") { S.indexes[p] = ""; S.idxSrc[p] = null; S.idxOver[p] = null; applyAuto(); save(); render(); }
-    else if (a === "refreshidx") refreshIdx(true);
+    else if (a === "refreshidx") refreshIdx(true, true);
+    else if (a === "plock") { var lk = R.filter(function (x) { return MP.normName(x.name) === v; })[0]; if (lk) { var cur = MP.resolveIndex(IDX.file, MAN, lk.name); MAN = MP.setManualLock(MAN, lk.name, !(cur && cur.locked)); MP.saveManual(localStorage, MAN); render(); } }
     else if (a === "refreshlib") refreshLib(true);
     else if (a === "adv") { adv = !adv; render(); }
     else if (a === "clearplayers") {
