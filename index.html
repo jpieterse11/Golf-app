@@ -21,6 +21,10 @@ html,body{margin:0;background:var(--bg);color:var(--text);font:17px/1.35 -apple-
 body{padding:env(safe-area-inset-top) 0 0}
 #app{max-width:520px;margin:0 auto;padding:12px 12px calc(84px + env(safe-area-inset-bottom))}
 h1{font-size:22px;margin:4px 2px 12px}
+.hero.has{display:flex;align-items:flex-end;min-height:124px;margin:0 0 12px;padding:12px 14px;border-radius:14px;overflow:hidden;color:#fff;background:linear-gradient(90deg,rgba(6,16,10,.72) 0%,rgba(6,16,10,.35) 55%,rgba(6,16,10,.12) 100%),linear-gradient(0deg,rgba(6,16,10,.6) 0%,rgba(6,16,10,0) 65%),url(banner.jpg) 72% 58%/cover no-repeat,#1d3226;border:1px solid var(--line)}
+.hero.has h1{margin:0}
+.hero.has h1{color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.7),0 0 12px rgba(0,0,0,.35)}
+@media (prefers-color-scheme:dark){.hero.has{background:linear-gradient(90deg,rgba(4,10,6,.8) 0%,rgba(4,10,6,.45) 55%,rgba(4,10,6,.25) 100%),linear-gradient(0deg,rgba(4,10,6,.65) 0%,rgba(4,10,6,.1) 65%),url(banner.jpg) 72% 58%/cover no-repeat,#0f1812}}
 h2{font-size:15px;text-transform:uppercase;letter-spacing:.05em;color:var(--sub);margin:20px 2px 8px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
 .row{display:flex;gap:10px;align-items:center}
@@ -1427,9 +1431,18 @@ if (typeof module !== "undefined") module.exports = MP;
     }
     return o;
   }
+  // Setup banner photo (banner.jpg). Preloaded; the .has class (white text over the photo) is only applied once it has loaded,
+  // so if the image is missing/offline the header keeps the normal look.
+  var BANNER_OK = false;
+  (function () {
+    var im = new Image();
+    im.onload = function () { BANNER_OK = true; var e = document.querySelector(".hero"); if (e) e.classList.add("has"); };
+    im.src = "banner.jpg";
+    if (im.decode) im.decode().catch(function () {});
+  })();
   function viewSetup() {
     var calc = MP.compute(S);
-    var h = "<h1>⛳ Golf Scoring · Setup</h1>";
+    var h = '<div class="hero' + (BANNER_OK ? " has" : "") + '"><h1>⛳ Golf Scoring · Setup</h1></div>';
     h += "<h2>Game</h2>" + seg("game", [["nassau", "Nassau"], ["skins", "Skins"], ["vegas", "Las Vegas"], ["wolf", "Wolf"]], S.game) + '<p class="sub small" style="margin:6px 2px 0">' + GAME_BLURB[S.game] + "</p>";
     if (S.game === "nassau") {
       h += '<h2>Format</h2>' + seg("format", [["singles", "One on one"], ["bestball", "2 vs 2"], ["wheel", "5-player wheel"]], S.format);
