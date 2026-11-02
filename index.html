@@ -111,7 +111,6 @@ input.bad{border-color:var(--red);border-width:2px;background:var(--warn)}
 #toast{position:fixed;left:10px;right:10px;top:calc(8px + env(safe-area-inset-top));z-index:30;pointer-events:none;display:flex;flex-direction:column;gap:6px;max-width:500px;margin:0 auto}
 .tt{pointer-events:none;background:var(--text);color:var(--bg);border-radius:12px;padding:10px 12px;font-size:15px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.35);border-left:6px solid var(--green);animation:tin .18s ease-out}
 .tag.lockt{background:none;border:1px solid var(--line);border-radius:8px;padding:3px 6px;font-family:inherit;color:var(--ok);cursor:pointer}.tag.lockt.on{background:var(--soft);color:var(--text)}
-.spin{display:inline-block;width:13px;height:13px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spn .7s linear infinite;vertical-align:-2px;margin-right:6px}@keyframes spn{to{transform:rotate(360deg)}}
 .tt.vegas{border-left-color:#14b8a6}.tt.wolf{border-left-color:#8b5e34}
 .tt.closeout{border-left-color:#d99a00}.tt.press{border-left-color:#e0652d}.tt.skin{border-left-color:#3b82f6}.tt.birdie{border-left-color:#a855f7}
 @keyframes tin{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
@@ -929,6 +928,14 @@ var MP = (function () {
     var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s), d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
     return (withDow ? DOWS[d.getDay()] + " " : "") + MONTHS[d.getMonth()] + " " + d.getDate();
   }
+  /* whole days from date a to date b (ISO strings), DST-safe; null if either is invalid */
+  function daysBetween(a, b) {
+    if (!validIsoDate(a) || !validIsoDate(b)) return null;
+    var pa = a.split("-"), pb = b.split("-");
+    return Math.round((Date.UTC(+pb[0], +pb[1] - 1, +pb[2]) - Date.UTC(+pa[0], +pa[1] - 1, +pa[2])) / 86400000);
+  }
+  /* The GHIN list updates weekly (Mondays), so it only counts as out of date when it is more than 8 days old. */
+  function isOldList(asOf, today) { var d = daysBetween(asOf, today || isoDate()); return d !== null && d > 8; }
   function isStaleDate(s, today) { return s !== (today || isoDate()); }
   /* A usable index as the string shown in the field ("7.1", "+1.2"), or null. Numbers: 7.1 -> "7.1", 8 -> "8.0", -1.2 -> "+1.2". Strings: "+1.2" ok, "-1.2" is read as plus. */
   function cleanIndex(v) {
@@ -1011,7 +1018,7 @@ var MP = (function () {
         return cached ? { file: cached.file, status: "cached", fetchedAt: cached.fetchedAt, error: msg } : { file: null, status: "none", fetchedAt: null, error: msg };
       });
   }
-  /* manual overrides: { normalizedName: {name, index, date, lock?} }. lock = the player is pinned: a Refresh never replaces it. */
+  /* manual overrides: { normalizedName: {name, index, date, lock?} }. lock = the player is pinned: a newer GHIN list never replaces it. */
   function loadManual(storage) {
     var out = {};
     try {
@@ -1035,33 +1042,11 @@ var MP = (function () {
     out[k] = { name: cleanName(name), index: ix, date: today || isoDate() }; if (wasLocked) out[k].lock = true;
     return { ok: true, manual: out, error: "" };
   }
-  /* Pin or unpin a hand-typed index. Only a pinned value survives a Refresh that brings in an equal or newer GHIN date. */
+  /* Pin or unpin a hand-typed index. Only a pinned value survives a newer GHIN list. */
   function setManualLock(manual, name, lock) {
     var k = normName(name), out = {}; Object.keys(manual || {}).forEach(function (x) { out[x] = manual[x]; });
     if (out[k]) { out[k] = { name: out[k].name, index: out[k].index, date: out[k].date }; if (lock) out[k].lock = true; }
     return out;
-  }
-  /* Run when the user taps Refresh and the feed is live: drops every UNPINNED hand-typed index that is not newer than the feed's date,
-     for players the feed knows (so GHIN wins). Returns { manual, cleared: [names] }. */
-  function pruneManual(manual, file) {
-    var out = {}, cleared = [];
-    Object.keys(manual || {}).forEach(function (k) {
-      var m = manual[k], inFeed = file && resolveIndex(file, null, m.name);
-      if (inFeed && !m.lock && m.date <= file.asOf) cleared.push(m.name); else out[k] = m;
-    });
-    return { manual: out, cleared: cleared };
-  }
-  /* { normName: index } for each name, as the Players tab would show it. */
-  function indexSnapshot(file, manual, names) {
-    var o = {}; (names || []).forEach(function (n) { var r = resolveIndex(file, manual, n); o[normName(n)] = r ? r.index : ""; }); return o;
-  }
-  /* The message shown after the user taps Refresh. info: { status: "live"|"cached"|"none", file, changed: [names], kept: n } -> { type, text } */
-  function refreshReport(info) {
-    var f = info.file, asOf = f ? fmtDate(f.asOf, false) : "", src = f && f.source || "GHIN", n = (info.changed || []).length;
-    if (info.status !== "live") return { type: "closeout", text: "Couldn't reach server \u2014 offline." + (f ? " Showing the saved " + src + " list (as of " + asOf + ")." : " No saved indexes yet.") };
-    var keep = info.kept ? " \u00b7 kept " + info.kept + " pinned by hand" : "";
-    if (n) return { type: "refresh", text: "Updated " + n + " player" + (n === 1 ? "" : "s") + " \u00b7 " + src + " as of " + asOf + keep };
-    return { type: "refresh", text: "All up to date (as of " + asOf + ")" + keep };
   }
   function renameManual(manual, oldName, newName) {
     var out = {}; Object.keys(manual || {}).forEach(function (x) { out[x] = manual[x]; });
@@ -1076,7 +1061,7 @@ var MP = (function () {
     var fk = file && file.players && !file.players[k] && file.aliases && file.aliases[k] ? file.aliases[k] : k; /* an alias with no entry of its own uses its canonical player's index */
     var f = file && file.players && file.players[fk] ? { index: file.players[fk].index, date: file.asOf, source: file.source || "GHIN" } : null;
     var m = manual && manual[k] ? { index: manual[k].index, date: manual[k].date, source: "manual" } : null; if (m && manual[k].lock) m.locked = true;
-    if (f && m) return m.locked || m.date >= f.date ? m : f; /* a pinned (locked) value always wins; otherwise the newest date wins, ties to the hand-typed value until a Refresh clears it */
+    if (f && m) return m.locked || m.date >= f.date ? m : f; /* a pinned (locked) value always wins; otherwise the newest date wins, ties go to the hand-typed value */
     return m || f || null;
   }
   /* Keeps every player's round index (state.indexes, which all scoring reads) equal to the Players-tab value for that name: the newest of the
@@ -1244,9 +1229,9 @@ var MP = (function () {
     mergeFeedPlayers: mergeFeedPlayers, loadDismissed: loadDismissed, addDismissed: addDismissed, DISMISS_KEY: DISMISS_KEY, ROSTER_KEY: ROSTER_KEY, FAVORITES: FAVORITES, normName: normName, cleanName: cleanName, validIndex: validIndex, missingIndexes: missingIndexes, seedRoster: seedRoster, parseRoster: parseRoster,
     loadRoster: loadRoster, saveRoster: saveRoster, sortRoster: sortRoster, rosterFind: rosterFind, roundHasScores: roundHasScores, isSampleRound: isSampleRound, rosterAutoSave: rosterAutoSave, newRoundReset: newRoundReset,
     DEFAULT_SI: DEFAULT_SI, DEFAULT_PAR: DEFAULT_PAR, TEES: TEES, HOLES: HOLES, WHEEL_PAIRS: WHEEL_PAIRS, SAMPLE: SAMPLE,
-    MANUAL_KEY: MANUAL_KEY, IDXCACHE_KEY: IDXCACHE_KEY, isoDate: isoDate, validIsoDate: validIsoDate, fmtDate: fmtDate, isStaleDate: isStaleDate, cleanIndex: cleanIndex, parseIndexFile: parseIndexFile,
+    MANUAL_KEY: MANUAL_KEY, IDXCACHE_KEY: IDXCACHE_KEY, isoDate: isoDate, validIsoDate: validIsoDate, fmtDate: fmtDate, isStaleDate: isStaleDate, daysBetween: daysBetween, isOldList: isOldList, cleanIndex: cleanIndex, parseIndexFile: parseIndexFile,
     loadIndexCache: loadIndexCache, fetchIndexes: fetchIndexes, loadManual: loadManual, saveManual: saveManual, setManualIndex: setManualIndex, renameManual: renameManual, removeManual: removeManual,
-    resolveIndex: resolveIndex, setManualLock: setManualLock, pruneManual: pruneManual, indexSnapshot: indexSnapshot, refreshReport: refreshReport, autofillIndexes: autofillIndexes, syncIndexes: syncIndexes, roundHasContent: roundHasContent,
+    resolveIndex: resolveIndex, setManualLock: setManualLock, autofillIndexes: autofillIndexes, syncIndexes: syncIndexes, roundHasContent: roundHasContent,
     LIB_KEY: LIB_KEY, REQ_KEY: REQ_KEY, parseCourseLibrary: parseCourseLibrary, loadLibraryCache: loadLibraryCache, fetchCourseLibrary: fetchCourseLibrary,
     loadRequests: loadRequests, saveRequests: saveRequests, addRequest: addRequest, removeRequest: removeRequest, requestText: requestText, requestMatch: requestMatch, nameTokens: nameTokens, clearPlayers: clearPlayers,
     emptyScores: emptyScores, defaultState: defaultState, strokesOn: strokesOn, parseIndex: parseIndex, money: money, signedMoney: signedMoney,
@@ -1371,26 +1356,14 @@ if (typeof module !== "undefined") module.exports = MP;
     if (typing()) { idxDirty = true; return; }
     idxDirty = false; applyAuto(); if (S.screen === "setup" || S.screen === "players" || S.screen === "hole" || S.screen === "card" || S.screen === "results") render();
   }
-  function refreshIdx(force, notify) {
+  function refreshIdx(force) { /* silent: fetches indexes.json?t=<now> (no-store) and updates the lists; no button, no message */
     if (idxBusy || (!force && Date.now() - lastIdxFetch < 4000)) return;
-    idxBusy = true; if (force && S.screen === "players") render();
-    var oldFile = IDX.file, oldMan = MAN;
+    idxBusy = true;
     MP.fetchIndexes(window.fetch ? window.fetch.bind(window) : null, localStorage, Date.now()).then(function (res) {
-      idxBusy = false; lastIdxFetch = Date.now(); IDX = res;
-      if (notify && res.status === "live") { var pr = MP.pruneManual(MAN, res.file); if (pr.cleared.length) { MAN = pr.manual; MP.saveManual(localStorage, MAN); } }
-      mergeFeed();
-      if (notify) {
-        var names = R.map(function (x) { return x.name; }), a = MP.indexSnapshot(oldFile, oldMan, names), b = MP.indexSnapshot(res.file, MAN, names), kept = 0;
-        var changed = R.filter(function (x) { var k = MP.normName(x.name); return a[k] !== b[k]; }).map(function (x) { return x.name; });
-        R.forEach(function (x) { var r = MP.resolveIndex(res.file, MAN, x.name), fr = MP.resolveIndex(res.file, null, x.name); if (r && r.source === "manual" && fr && fr.index !== r.index) kept++; });
-        idxMsgOut = MP.refreshReport({ status: res.status, file: res.file, changed: changed, kept: kept });
-      }
-      idxApply();
-      if (notify && idxMsgOut) { var mo = idxMsgOut; idxMsgOut = null; showToast([mo]); }
+      idxBusy = false; lastIdxFetch = Date.now(); IDX = res; mergeFeed(); idxApply();
     });
   }
-  var idxMsgOut = null;
-  function tagFor(src, date, short) { var st = MP.isStaleDate(date, today()); return '<span class="tag' + (st ? " amber" : "") + '">' + esc(src + " · " + MP.fmtDate(date, false)) + (st && !short ? " (stale)" : "") + "</span>"; }
+  function tagFor(src, date, short) { var st = MP.isOldList(date, today()); /* same 8-day rule as the banner: weekly list, only old when more than 8 days back */ return '<span class="tag' + (st ? " amber" : "") + '">' + esc(src + " · " + MP.fmtDate(date, false)) + (st && !short ? " (stale)" : "") + "</span>"; }
   function idxTime(ms) { var d = new Date(ms); return MP.fmtDate(MP.isoDate(d), false) + ", " + d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
   function idxBad(p) { return S.useHcp && !MP.validIndex(S.indexes[p]); }
   function idxField(p) {
@@ -1522,15 +1495,14 @@ if (typeof module !== "undefined") module.exports = MP;
   function viewPlayers() {
     var h = "<h1>👥 Players</h1>", f = IDX.file, td = today();
     if (f) {
-      var st = MP.isStaleDate(f.asOf, td);
+      var st = MP.isOldList(f.asOf, td), age = MP.daysBetween(f.asOf, td);
       h += '<div class="card ixbar' + (st ? " amber" : "") + '"><div class="grow"><b>' + esc(f.source) + " indexes as of " + esc(MP.fmtDate(f.asOf, true)) + "</b>" +
-        (st ? ' <span class="badge" style="background:var(--amber);color:#fff">stale</span><div class="small" style="color:var(--amber);font-weight:600">Not today (' + esc(MP.fmtDate(td, true)) + "). Ask for a refresh before you play.</div>" : '<div class="small" style="color:var(--ok);font-weight:600">Up to date for today</div>') +
-        '<div class="sub small">' + (IDX.status === "live" ? "Checked " + esc(idxTime(IDX.fetchedAt)) : IDX.status === "cached" ? "Offline: showing the copy saved " + esc(idxTime(IDX.fetchedAt)) : "") + "</div></div>" +
-        '<button class="btn" data-act="refreshidx"' + (idxBusy ? " disabled aria-busy=\"true\"" : "") + ">" + (idxBusy ? '<span class="spin"></span>Refreshing' : "Refresh") + "</button></div>";
+        (st ? ' <span class="badge" style="background:var(--amber);color:#fff">stale</span><div class="small" style="color:var(--amber);font-weight:600">This list is ' + age + " days old. It should update every Monday.</div>" : "") +
+        '<div class="sub small">' + (IDX.status === "live" ? "Checked " + esc(idxTime(IDX.fetchedAt)) : IDX.status === "cached" ? "Offline: showing the copy saved " + esc(idxTime(IDX.fetchedAt)) : "") + "</div></div></div>";
     } else {
-      h += '<div class="card ixbar amber"><div class="grow"><b>No index list loaded</b><div class="sub small">' + (idxBusy ? "Checking…" : "Couldn't load indexes.json (offline?). Type an index to set one by hand.") + '</div></div><button class="btn" data-act="refreshidx"' + (idxBusy ? " disabled aria-busy=\"true\"" : "") + ">" + (idxBusy ? '<span class="spin"></span>Refreshing' : "Refresh") + "</button></div>";
+      h += '<div class="card ixbar amber"><div class="grow"><b>No index list loaded</b><div class="sub small">' + (idxBusy ? "Checking…" : "Couldn't load the index list (offline?). Type an index to set one by hand.") + '</div></div></div>';
     }
-    h += '<p class="sub">GHIN indexes update automatically every Saturday at 5 AM (Pacific). Tap Refresh to pull the latest list anytime. Type a number in the Index column to set one by hand: it is replaced at the next update unless you pin it (tap its “manual” tag to pin 🔒). They fill in on Setup when you pick a player. Tap ☆ to make a favorite. Anyone who plays a round is saved here automatically.</p>';
+    h += '<p class="sub">GHIN indexes update automatically every Monday at 5 AM (Pacific). Type a number in the Index column to set one by hand: it is replaced at the next update unless you pin it (tap its "manual" tag to pin 🔒). They fill in on Setup when you pick a player. Tap ☆ to make a favorite. Anyone who plays a round is saved here automatically.</p>';
     h += '<h2>Saved players (' + R.length + ")</h2>";
     if (!R.length) h += '<div class="msg">No saved players yet. Add one below, or play a round.</div>';
     else h += '<div class="card"><div class="prh"><span style="width:48px"></span><span class="grow">Name</span><span style="width:92px;text-align:center">Index</span><span style="width:48px"></span></div>' + MP.sortRoster(R).map(function (x) {
@@ -2111,7 +2083,6 @@ if (typeof module !== "undefined") module.exports = MP;
       var f = app.querySelector('input[data-k="indexes"][data-i="' + pi2 + '"]'); if (f) f.focus();
     }
     else if (a === "idxreset") { S.indexes[p] = ""; S.idxSrc[p] = null; S.idxOver[p] = null; applyAuto(); save(); render(); }
-    else if (a === "refreshidx") refreshIdx(true, true);
     else if (a === "plock") { var lk = R.filter(function (x) { return MP.normName(x.name) === v; })[0]; if (lk) { var cur = MP.resolveIndex(IDX.file, MAN, lk.name); MAN = MP.setManualLock(MAN, lk.name, !(cur && cur.locked)); MP.saveManual(localStorage, MAN); render(); } }
     else if (a === "refreshlib") refreshLib(true);
     else if (a === "adv") { adv = !adv; render(); }
