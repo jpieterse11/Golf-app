@@ -632,29 +632,32 @@ var MP = (function () {
     return res;
   }
 
-  /* ---- Snake add-on (three-putt). A manual 3-putt mark per player per hole. The snake goes to whoever three-putted last.
-     Within a hole several players can have a mark; there's no order info, so the app asks "who three-putted last?" (snakeLast[h]).
-     Until that pick is made the hole is skipped and the snake stays with the previous holder. At the end the holder pays every other
-     active player a fixed amount (no doubling). Independent of the main game and of Birdies. ---- */
+  /* ---- Snake add-on (three-putt). A manual 3-putt mark per player per hole. EVERY three-putt is a separate snake (two players on one hole = 2 snakes).
+     The snake is held by whoever three-putted last. When several players three-putted on one hole the app only knows putt counts, not order, so
+     snakeLast[h] records who was last; until a pick is made the LAST PLAYER IN PLAYER ORDER among them is used (rec.defaulted = true).
+     At the end the final holder pays EVERY other active player (per-snake $ x total snakes in the round). No splitting, no doubling.
+     Independent of the main game and of Birdies. ---- */
   function snake(state, calc) {
     var active = calc.active, n = active.length, amt = Number(state.snakeAmt) || 0;
-    var res = { amount: amt, holder: null, holes: [], count: zero5(), needPick: [], net: zero5(), moves: 0 };
+    var res = { amount: amt, holder: null, holes: [], count: zero5(), total: 0, owed: 0, defaulted: [], net: zero5(), moves: 0, lastHole: null };
     var holder = null;
     HOLES.forEach(function (h) {
       var marks = active.filter(function (p) { return String(state.putts[h] || "").indexOf(String(p)) >= 0; });
-      var rec = { h: h, marks: marks, before: holder, holder: holder, needsPick: false, moved: false, last: null };
+      var rec = { h: h, marks: marks, snakes: marks.length, before: holder, holder: holder, defaulted: false, moved: false, last: null };
       marks.forEach(function (p) { res.count[p]++; });
+      res.total += marks.length;
       if (marks.length === 1) rec.last = marks[0];
       else if (marks.length > 1) {
         var pk = String(state.snakeLast[h] == null ? "" : state.snakeLast[h]);
         if (/^[0-4]$/.test(pk) && marks.indexOf(Number(pk)) >= 0) rec.last = Number(pk);
-        else { rec.needsPick = true; res.needPick.push(h); }
+        else { rec.last = marks[marks.length - 1]; rec.defaulted = true; res.defaulted.push(h); }
       }
-      if (rec.last !== null) { rec.holder = rec.last; rec.moved = rec.last !== holder; if (rec.moved) res.moves++; holder = rec.last; }
+      if (rec.last !== null) { rec.holder = rec.last; rec.moved = rec.last !== holder; if (rec.moved) res.moves++; holder = rec.last; res.lastHole = h; }
       res.holes.push(rec);
     });
     res.holder = holder;
-    if (holder !== null && n > 1) active.forEach(function (p) { if (p !== holder) { res.net[holder] -= amt; res.net[p] += amt; } });
+    res.owed = cents(amt * res.total); /* what the holder owes EACH other player */
+    if (holder !== null && n > 1) active.forEach(function (p) { if (p !== holder) { res.net[holder] -= res.owed; res.net[p] += res.owed; } });
     res.net = res.net.map(cents);
     return res;
   }
@@ -846,10 +849,10 @@ var MP = (function () {
       });
     }
     if (nextS.snakeOn) {
-      var sa = snake(prevS, ca), sb = snake(nextS, cb), sk2 = function (r) { return [r.holder, r.needsPick, r.moved, r.marks.join("")].join("|"); };
+      var sa = snake(prevS, ca), sb = snake(nextS, cb), sk2 = function (r) { return [r.holder, r.defaulted, r.moved, r.marks.join("")].join("|"); };
       sb.holes.forEach(function (r, h) {
         var q = sa.holes[h]; if (sk2(q) === sk2(r) || !r.marks.length) return;
-        if (r.needsPick) ev.push({ type: "snake", hole: h, text: "Snake #" + (h + 1) + ": " + r.marks.map(function (p) { return firstName(nextS, p); }).join(" & ") + " all three-putted. Who was last? (snake stays put until you pick)" });
+        if (r.marks.length > 1) ev.push({ type: "snake", hole: h, text: "Snake #" + (h + 1) + ": " + r.marks.map(function (p) { return firstName(nextS, p); }).join(" & ") + " all three-putted (" + r.marks.length + " snakes). Last: " + firstName(nextS, r.holder) + (r.defaulted ? " (default, last in order; pick who was last on the Hole screen)" : "") });
         else if (r.moved) ev.push({ type: "snake", hole: h, text: r.before === null ? "Snake goes to " + firstName(nextS, r.holder) + " on #" + (h + 1) : "Snake moves to " + firstName(nextS, r.holder) + " on #" + (h + 1) });
       });
     }
@@ -1601,8 +1604,8 @@ if (typeof module !== "undefined") module.exports = MP;
     if (S.birdOn) h += '<div class="grid2">' + txt("$ per birdie", "birdAmt", S.birdAmt, "", "decimal") + "<div></div></div>" + sw("Count net birdies instead of gross", "birdNet", S.birdNet) +
       '<p class="sub small">Birdie or better pays the maker from every other player. An eagle counts double. Off by default: net birdies.</p>';
     h += sw("Snake (three-putt)", "snakeOn", S.snakeOn);
-    if (S.snakeOn) h += '<div class="grid2">' + txt("$ per player", "snakeAmt", S.snakeAmt, "", "decimal") + "<div></div></div>" +
-      '<p class="sub small">Default is $1 per player; change it any time. Mark a 3-putt (or worse) per player on the Hole screen. The snake goes to whoever three-putted last; if several players three-putt on one hole you tap who was last. At the end the holder pays this fixed amount to every other player (no doubling). Nobody three-putted: no payout. Works with any game and 2 to 5 players.</p>';
+    if (S.snakeOn) h += '<div class="grid2">' + txt("$ per snake", "snakeAmt", S.snakeAmt, "", "decimal") + "<div></div></div>" +
+      '<p class="sub small">Every three-putt (or worse) is one snake; whoever three-putts last holds it and pays every other player the per-snake amount times the total number of snakes in the round. If several players three-putt on one hole, tap who was last (it defaults to the last in player order). Default is $1 per snake; mark 3-putts on the Hole screen. Works with any game and 2 to 5 players.</p>';
     h += "</div>";
     h += '<p class="sub small" style="text-align:center">Par and hole handicaps come from the course. Edit them under Manage courses.</p>';
     h += idxMsg().replace('id="idxmsg"', 'id="idxmsg2"') + '<button class="btn pri" data-act="go" data-v="hole">Start scoring ›</button><div style="height:10px"></div>' +
@@ -1662,11 +1665,9 @@ if (typeof module !== "undefined") module.exports = MP;
   }
   function snakeCard(calc, h) {
     var sk = MP.snake(S, calc), r = sk.holes[h], cur = sk.holder, o = '<div class="card snk"><b>🐍 Snake: ' + (cur === null ? '<span class="sub">nobody yet</span>' : esc(lab(cur))) + "</b>";
-    o += '<div class="small sub" style="margin-top:4px">' + MP.money(sk.amount) + " from the holder to each other player at the end. Hole " + (h + 1) + ": " + (r.marks.length ? r.marks.map(function (p) { return esc(lab(p)); }).join(", ") + " three-putted" : "no 3-putts") + ".</div>";
-    if (r.needsPick) o += '<div class="msg bad" style="margin-top:8px"><b>Who three-putted last?</b> Tap one. Until then the snake stays with ' + (r.before === null ? "nobody" : esc(lab(r.before))) + '.</div><div class="wp" style="grid-template-columns:repeat(' + Math.min(r.marks.length, 3) + ',1fr)">' +
-      r.marks.map(function (p) { return '<button class="btn" data-act="snakelast" data-p="' + p + '">' + esc(lab(p)) + "</button>"; }).join("") + "</div>";
-    else if (r.marks.length > 1) o += '<div class="small" style="margin-top:6px">Last to three-putt: <b>' + esc(lab(r.last)) + '</b> <span class="sub">(tap a name to change)</span></div><div class="wp" style="grid-template-columns:repeat(' + Math.min(r.marks.length, 3) + ',1fr)">' +
-      r.marks.map(function (p) { return '<button class="btn' + (p === r.last ? " pri" : "") + '" data-act="snakelast" data-p="' + p + '">' + esc(lab(p)) + "</button>"; }).join("") + "</div>";
+    o += '<div class="small sub" style="margin-top:4px">' + sk.total + " snake" + (sk.total === 1 ? "" : "s") + " so far" + (sk.total ? " = " + MP.money(sk.owed) + " (" + MP.money(sk.amount) + " each) from the holder to each other player at the end" : "") + ". Hole " + (h + 1) + ": " + (r.marks.length ? r.marks.map(function (p) { return esc(lab(p)); }).join(", ") + " three-putted" + (r.marks.length > 1 ? " (" + r.marks.length + " snakes)" : "") : "no 3-putts") + ".</div>";
+    if (r.marks.length > 1) o += '<div class="small" style="margin-top:6px"><b>Last 3-putt on this hole:</b> ' + esc(lab(r.last)) + (r.defaulted ? ' <span class="sub">(default: last in player order. Tap a name to change.)</span>' : ' <span class="sub">(tap the highlighted name to go back to the default)</span>') + '</div><div class="wp" style="grid-template-columns:repeat(' + Math.min(r.marks.length, 3) + ',1fr)">' +
+      r.marks.map(function (p) { return '<button class="btn' + (p === r.last ? " pri" : "") + '" data-act="snakelast" data-p="' + p + '">' + esc(lab(p)) + (p === r.last && r.defaulted ? " (default)" : "") + "</button>"; }).join("") + "</div>";
     return o + "</div>";
   }
   /* ---------- hole screen ---------- */
@@ -1834,7 +1835,7 @@ if (typeof module !== "undefined") module.exports = MP;
       o += '<tr><td class="s"><b class="small">🐍 3-putt</b></td>' + cols.map(function (c) {
         if (c.t === "s") { var a = range(c.k)[0], b2 = range(c.k)[1], t = 0; for (var i = a; i <= b2; i++) t += snk.holes[i].marks.length; return '<td class="sum sb">' + (t || "") + "</td>"; }
         var r = snk.holes[c.h];
-        return '<td class="sb">' + r.marks.map(function (p) { return (p === r.last ? "<b>" : "") + esc(ini(p)) + (p === r.last ? "</b>" : ""); }).join(" ") + (r.needsPick ? ' <span class="neg">?</span>' : "") + "</td>";
+        return '<td class="sb">' + r.marks.map(function (p) { return (r.marks.length > 1 && p === r.last ? "<b>" : "") + esc(ini(p)) + (r.marks.length > 1 && p === r.last ? "</b>" : ""); }).join(" ") + "</td>";
       }).join("") + "</tr>";
       o += '<tr><td class="s"><b class="small">Holder</b></td>' + cols.map(function (c) {
         if (c.t === "s") return '<td class="sum sb"></td>';
@@ -1842,7 +1843,7 @@ if (typeof module !== "undefined") module.exports = MP;
       }).join("") + "</tr>";
     }
     o += "</table></div>";
-    o += '<div class="legend">' + (snk ? "🐍 = snake moved to that player (bold initials = last to 3-putt). " + (snk.holder === null ? "Nobody has the snake yet" : "Snake holder now: <b>" + esc(lab(snk.holder)) + "</b>") + ". " : "") + '● = stroke on that hole · ○ birdie · ◎ eagle · □ bogey or worse · tap a hole number or a score to edit it · scroll sideways for more' + (bd ? " · ★ eagle (counts double)" : "") + (S.game === "nassau" ? (S.autoPress ? ". Presses show as extra rows (F P1 = front press 1). " : ". ") + "A box like 3&amp;2 means that bet was decided." : S.game === "vegas" ? ". ↺ = number flipped by a birdie." : S.game === "wolf" ? ". ? = the wolf hasn't picked yet (hole not counted)." : S.game === "stableford" ? ". ▽ = stroke given back (plus handicap). Stableford points per hole: net birdie 3, par 2, bogey 1, double bogey or worse 0." : ".") + "</div>";
+    o += '<div class="legend">' + (snk ? "🐍 = snake moved to that player (bold initials = last to 3-putt on a hole with several). Every 3-putt is one snake (" + snk.total + " so far). " + (snk.holder === null ? "Nobody has the snake yet" : "Snake holder now: <b>" + esc(lab(snk.holder)) + "</b>") + ". " : "") + '● = stroke on that hole · ○ birdie · ◎ eagle · □ bogey or worse · tap a hole number or a score to edit it · scroll sideways for more' + (bd ? " · ★ eagle (counts double)" : "") + (S.game === "nassau" ? (S.autoPress ? ". Presses show as extra rows (F P1 = front press 1). " : ". ") + "A box like 3&amp;2 means that bet was decided." : S.game === "vegas" ? ". ↺ = number flipped by a birdie." : S.game === "wolf" ? ". ? = the wolf hasn't picked yet (hole not counted)." : S.game === "stableford" ? ". ▽ = stroke given back (plus handicap). Stableford points per hole: net birdie 3, par 2, bogey 1, double bogey or worse 0." : ".") + "</div>";
     o += '<button class="btn" data-act="go" data-v="results">See results and settle up</button>';
     return o;
   }
@@ -1855,10 +1856,10 @@ if (typeof module !== "undefined") module.exports = MP;
     }).join("") + "</table></div>";
   }
   function snakeTable(all) {
-    var sk = all.snake, ap = MP.activePlayers(S), none = sk.holder === null;
-    return '<div class="card"><b>🐍 Snake · ' + MP.money(sk.amount) + ' to each player</b><div style="margin:6px 0">' + (none ? "Nobody three-putted: no payout." : "Holder: <b>" + esc(lab(sk.holder)) + "</b> (last to three-putt" + (sk.holes.filter(function (r) { return r.last === sk.holder; }).length ? ", #" + (sk.holes.filter(function (r) { return r.last === sk.holder; }).pop().h + 1) : "") + ") pays " + MP.money(sk.amount) + " to each of the other " + (ap.length - 1) + ".") + "</div>" +
-      (sk.needPick.length ? '<div class="msg bad"><b>Not decided yet:</b> hole' + (sk.needPick.length > 1 ? "s " : " ") + sk.needPick.map(function (x) { return x + 1; }).join(", ") + " ha" + (sk.needPick.length > 1 ? "ve" : "s") + " several 3-putts with no &quot;who was last&quot; pick. Tap the hole and choose.</div>" : "") +
-      '<table><tr><th class="l">Player</th><th>3-putts</th><th>Holes</th><th>$</th></tr>' + ap.map(function (p) {
+    var sk = all.snake, ap = MP.activePlayers(S), none = sk.holder === null, lh = sk.lastHole;
+    return '<div class="card"><b>🐍 Snake · ' + sk.total + " snake" + (sk.total === 1 ? "" : "s") + " × " + MP.money(sk.amount) + " = " + MP.money(sk.owed) + ' per player</b><div style="margin:6px 0">' + (none ? "Nobody three-putted: no payout." : "Holder: <b>" + esc(lab(sk.holder)) + "</b> (last to three-putt, #" + (lh + 1) + ") owes " + MP.money(sk.owed) + " to each of the other " + (ap.length - 1) + " = " + MP.money(sk.owed * (ap.length - 1)) + " in all.") + "</div>" +
+      (sk.defaulted.length ? '<div class="msg"><b>Default used:</b> hole' + (sk.defaulted.length > 1 ? "s " : " ") + sk.defaulted.map(function (x) { return x + 1; }).join(", ") + " had several 3-putts with no &quot;last 3-putt&quot; pick, so the last player in order counted as last. Tap the hole to choose.</div>" : "") +
+      '<table><tr><th class="l">Player</th><th>Snakes</th><th>Holes</th><th>$</th></tr>' + ap.map(function (p) {
         var hs = sk.holes.filter(function (r) { return r.marks.indexOf(p) >= 0; }).map(function (r) { return r.h + 1; });
         return '<tr><td class="l"><b>' + esc(lab(p)) + (p === sk.holder ? " 🐍" : "") + "</b></td><td>" + sk.count[p] + '</td><td class="sub small">' + hs.join(", ") + '</td><td class="' + cls(all.snakeNet[p]) + '">' + MP.signedMoney(all.snakeNet[p]) + "</td></tr>";
       }).join("") + "</table></div>";
