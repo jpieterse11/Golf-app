@@ -161,7 +161,7 @@ select.bad{border-color:var(--red);border-width:2px;background:var(--warn)}
 .ixbar .btn{width:auto;min-height:44px;padding:0 16px;flex:none}
 .pr .ix{position:relative}
 .pr .ix input[type=text]{padding-right:34px}
-.tp{margin-top:5px;min-height:34px;padding:0 10px;font:inherit;font-size:14px;font-weight:600;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--sub)}
+.tp{margin-top:5px;min-height:34px;padding:0 9px;white-space:nowrap;font:inherit;font-size:13px;font-weight:600;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--sub)}
 .tp.on{background:var(--warn);color:var(--text);border-color:var(--text)}
 .snk .wp .btn{min-height:44px}
 .wp{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}
@@ -1665,7 +1665,7 @@ if (typeof module !== "undefined") module.exports = MP;
   }
   function snakeCard(calc, h) {
     var sk = MP.snake(S, calc), r = sk.holes[h], cur = sk.holder, o = '<div class="card snk"><b>🐍 Snake: ' + (cur === null ? '<span class="sub">nobody yet</span>' : esc(lab(cur))) + "</b>";
-    o += '<div class="small sub" style="margin-top:4px">' + sk.total + " snake" + (sk.total === 1 ? "" : "s") + " so far" + (sk.total ? " = " + MP.money(sk.owed) + " (" + MP.money(sk.amount) + " each) from the holder to each other player at the end" : "") + ". Hole " + (h + 1) + ": " + (r.marks.length ? r.marks.map(function (p) { return esc(lab(p)); }).join(", ") + " three-putted" + (r.marks.length > 1 ? " (" + r.marks.length + " snakes)" : "") : "no 3-putts") + ".</div>";
+    o += '<div class="small sub" style="margin-top:4px">' + sk.total + " snake" + (sk.total === 1 ? "" : "s") + " in the round" + (sk.total ? " = " + MP.money(sk.owed) + " from the holder to each other player at the end" : "") + ". Tap 3-putt next to a player to mark one on hole " + (h + 1) + (r.marks.length > 1 ? " (" + r.marks.length + " marked = " + r.marks.length + " snakes)" : "") + ".</div>";
     if (r.marks.length > 1) o += '<div class="small" style="margin-top:6px"><b>Last 3-putt on this hole:</b> ' + esc(lab(r.last)) + (r.defaulted ? ' <span class="sub">(default: last in player order. Tap a name to change.)</span>' : ' <span class="sub">(tap the highlighted name to go back to the default)</span>') + '</div><div class="wp" style="grid-template-columns:repeat(' + Math.min(r.marks.length, 3) + ',1fr)">' +
       r.marks.map(function (p) { return '<button class="btn' + (p === r.last ? " pri" : "") + '" data-act="snakelast" data-p="' + p + '">' + esc(lab(p)) + (p === r.last && r.defaulted ? " (default)" : "") + "</button>"; }).join("") + "</div>";
     return o + "</div>";
