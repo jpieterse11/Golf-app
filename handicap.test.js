@@ -204,5 +204,65 @@ test("Stableford plays off each player's own playing handicap, and a plus gives 
   assert.strictEqual(strokeSum(c.strokes[1]), 18);
 });
 
+test("Annandale Orange uses the supplied 73.0/134 and gives Hosp 5.6 three strokes on Speaker 3.7", function () {
+  var s = round({ course: annandale, tee: "Orange", indexes: ["5.6", "3.7", "", "", ""], allowance: "100", format: "singles" });
+  assert.strictEqual(s.slope, "134");
+  assert.strictEqual(Number(s.rating), 73);
+  assert.strictEqual(s.course.tees[0].yards, 6602);
+  assert.strictEqual(MP.coursePar(s), 70);
+  var c = MP.compute(s);
+  same(c.courseH.slice(0, 2), [10, 7]);
+  same(c.playingH.slice(0, 2), [10, 7]);
+  same(c.diff.slice(0, 2), [3, 0]);
+  assert.strictEqual(strokeSum(c.strokes[0]), 3);
+  same(holesWith(c.strokes[0], s.si, 1), [1, 2, 3]);
+  var team = round({
+    course: annandale, tee: "Orange", allowance: "90", format: "bestball", game: "nassau",
+    indexes: ["5.6", "3.7", "18", "18", ""], names: ["Hosp", "Speaker", "C", "D", "E"]
+  });
+  var t = MP.compute(team);
+  same(t.courseH.slice(0, 2), [10, 7]);
+  same(t.playingH.slice(0, 2), [9, 6]);
+  assert.strictEqual(t.playingH[0] - t.playingH[1], 3);
+  var blue = annandale.tees.filter(function (x) { return x.name === "Blue"; })[0];
+  assert.strictEqual(blue.rating, 70.4);
+  assert.strictEqual(blue.slope, 125);
+});
+
+test("a saved Annandale round on Orange picks up 73.0/134 and keeps scores; other courses stay put", function () {
+  var old = MP.snapshotOf(annandale);
+  old.tees[0] = { name: "Orange", rating: 72.3, slope: 129, yards: 6602 };
+  var s = MP.defaultState();
+  s.course = old; s.courseId = "annandale"; s.tee = "Orange"; s.slope = "129"; s.rating = "72.3"; s.teePar = "";
+  s.par = annandale.par.map(String); s.si = annandale.si.map(String);
+  s.scores = MP.emptyScores(); s.scores[0][0] = "5"; s.scores[1][3] = "4";
+  assert.strictEqual(MP.refreshBuiltinAnnandale(s), true);
+  assert.strictEqual(Number(s.slope), 134);
+  assert.strictEqual(Number(s.rating), 73);
+  assert.strictEqual(s.scores[0][0], "5");
+  assert.strictEqual(s.scores[1][3], "4");
+  assert.strictEqual(Number(s.course.tees[0].slope), 134);
+  assert.strictEqual(Number(s.course.tees[1].slope), 127);
+  var blueRound = MP.defaultState();
+  blueRound.course = old; blueRound.courseId = "annandale"; blueRound.tee = "Blue"; blueRound.slope = "125"; blueRound.rating = "70.4";
+  blueRound.par = annandale.par.map(String); blueRound.si = annandale.si.map(String);
+  blueRound.scores = MP.emptyScores(); blueRound.scores[0][5] = "6";
+  MP.refreshBuiltinAnnandale(blueRound);
+  assert.strictEqual(blueRound.slope, "125");
+  assert.strictEqual(blueRound.rating, "70.4");
+  assert.strictEqual(blueRound.scores[0][5], "6");
+  assert.strictEqual(Number(blueRound.course.tees[0].rating), 73);
+  var custom = MP.defaultState();
+  custom.courseId = "custom"; custom.course = MP.snapshotOf(old); custom.slope = "129"; custom.rating = "72.3";
+  assert.strictEqual(MP.refreshBuiltinAnnandale(custom), false);
+  assert.strictEqual(custom.slope, "129");
+  var typed = MP.defaultState();
+  typed.course = old; typed.courseId = "annandale"; typed.tee = "Custom"; typed.slope = "140"; typed.rating = "74.0";
+  typed.par = annandale.par.map(String); typed.si = annandale.si.map(String);
+  MP.refreshBuiltinAnnandale(typed);
+  assert.strictEqual(typed.slope, "140");
+  assert.strictEqual(typed.rating, "74.0");
+});
+
 if (failed) { console.error("\n" + failed + " failed"); process.exit(1); }
 console.log("\nall handicap tests passed");

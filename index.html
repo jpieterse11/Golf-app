@@ -179,7 +179,7 @@ var MP = (function () {
   var DEFAULT_SI = [15, 5, 7, 3, 13, 1, 9, 11, 17, 10, 2, 6, 12, 4, 16, 8, 18, 14];
   var DEFAULT_PAR = [4, 4, 4, 4, 3, 4, 4, 4, 3, 4, 4, 3, 5, 4, 3, 4, 4, 5];
   var TEES = [
-    { name: "Orange", yards: 6602, rating: "72.3", slope: "129" },
+    { name: "Orange", yards: 6602, rating: "73.0", slope: "134" },
     { name: "Orange/Blue", yards: 6387, rating: "71.3", slope: "127" },
     { name: "Blue", yards: 6191, rating: "70.4", slope: "125" },
     { name: "Runyan", yards: 5848, rating: "68.7", slope: "121" },
@@ -545,6 +545,28 @@ var MP = (function () {
     if (!live) return false;
     var a = snapshotOf(state.course), b = snapshotOf(live); a.id = b.id = "";
     return JSON.stringify(a) !== JSON.stringify(b);
+  }
+  /* A round keeps its own copy of the course. If that copy is still the stock Annandale (same holes and other tees),
+     replace it with the current built-in so a tee-data correction is picked up. Re-apply the selected tee only when
+     slope and rating are still that tee's saved numbers. Custom tees, edited holes, and other courses are left alone. Scores are not touched. */
+  function refreshBuiltinAnnandale(state) {
+    if (!state || state.courseId !== "annandale" || !state.course || !state.course.tees) return false;
+    var live = ANNANDALE, saved = state.course;
+    if (saved.name !== live.name || !saved.par || !saved.si) return false;
+    if (saved.par.length !== live.par.length || saved.si.length !== live.si.length || saved.tees.length !== live.tees.length) return false;
+    for (var i = 0; i < live.par.length; i++) if (Number(saved.par[i]) !== live.par[i] || Number(saved.si[i]) !== live.si[i]) return false;
+    for (var t = 0; t < live.tees.length; t++) {
+      var a = saved.tees[t], b = live.tees[t];
+      if (!a || normName(a.name) !== normName(b.name)) return false;
+      if ((a.yards || 0) !== (b.yards || 0) || (a.par || 0) !== (b.par || 0)) return false;
+      if (normName(a.name) !== "orange" && (Number(a.rating) !== Number(b.rating) || Number(a.slope) !== Number(b.slope))) return false;
+    }
+    var teeName = state.tee, slope = state.slope, rating = state.rating, savedTee = null;
+    saved.tees.forEach(function (x) { if (!savedTee && normName(x.name) === normName(teeName)) savedTee = x; });
+    var stockSelection = savedTee && Number(slope) === Number(savedTee.slope) && Number(rating) === Number(savedTee.rating);
+    state.course = snapshotOf(live);
+    if (stockSelection) applyTee(state, teeName);
+    return true;
   }
 
   /* ---- Side bets: skins and birdies (new; the Nassau/press logic above is untouched) ---- */
@@ -1226,7 +1248,7 @@ var MP = (function () {
   return {
     COURSE_FORMAT: COURSE_FORMAT, COURSES_KEY: COURSES_KEY, ANNANDALE: ANNANDALE, checkCourse: checkCourse, exportCourse: exportCourse, importCourse: importCourse, snapshotOf: snapshotOf,
     newCourseId: newCourseId, loadCourses: loadCourses, saveCourses: saveCourses, allCourses: allCourses, sortCourses: sortCourses, findCourse: findCourse, uniqueCourseName: uniqueCourseName,
-    applyTee: applyTee, applyCourse: applyCourse, courseChanged: courseChanged,
+    applyTee: applyTee, applyCourse: applyCourse, courseChanged: courseChanged, refreshBuiltinAnnandale: refreshBuiltinAnnandale,
     skins: skins, stableford: stableford, stablefordPoints: stablefordPoints, ownStrokes: ownStrokes, birdies: birdies, vegas: vegas, vegasNumber: vegasNumber, wolfGame: wolfGame, snake: snake, roundHasSnake: roundHasSnake, togglePutt: togglePutt, setSnakeLast: setSnakeLast, emptyHoleStrs: emptyHoleStrs, undoPushSnake: undoPushSnake, wolfOf: wolfOf, wolfCount: wolfCount, wolfOrderOf: wolfOrderOf, emptyWolf: emptyWolf, normalizeGame: normalizeGame, GAMES: GAMES, firstName: firstName, teamLabel: teamLabel,
     settleAll: settleAll, undoPush: undoPush, undoPushWolf: undoPushWolf, undoPop: undoPop, diffEvents: diffEvents, holeComplete: holeComplete,
     mergeFeedPlayers: mergeFeedPlayers, loadDismissed: loadDismissed, addDismissed: addDismissed, DISMISS_KEY: DISMISS_KEY, ROSTER_KEY: ROSTER_KEY, FAVORITES: FAVORITES, normName: normName, cleanName: cleanName, validIndex: validIndex, missingIndexes: missingIndexes, seedRoster: seedRoster, parseRoster: parseRoster,
@@ -1283,6 +1305,7 @@ if (typeof module !== "undefined") module.exports = MP;
         if (MP.checkCourse({ name: "x", par: cp, handicap: cs, tees: [{ name: "t", rating: 70, slope: 113 }] }).ok) { d.course = MP.snapshotOf(d.course); d.course.par = cp; d.course.si = cs; d.course.name += " (edited)"; d.courseId = "custom"; }
         else { d.par = d.course.par.map(String); d.si = d.course.si.map(String); }
       }
+      if (d.courseId === "annandale") MP.refreshBuiltinAnnandale(d);
       if (d.screen === "courses" || d.screen === "courseedit") d.screen = "setup";
       S = MP.normalizeGame(d); /* rounds saved before the Game choice have no "game": they load as Nassau */
     } catch (e) {}
