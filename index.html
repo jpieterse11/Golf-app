@@ -233,12 +233,12 @@ var MP = (function () {
     };
   }
 
+  /* Match strokes for a player who receives `diff` strokes (already the gap in playing handicaps, never a raw index gap).
+     One stroke on each of the `diff` hardest holes: 19 is two on stroke index 1 and one everywhere else; 36 is two on every hole;
+     37 is three on stroke index 1. A non-positive diff receives nothing (the low player, or handicap strokes turned off). */
   function strokesOn(si, diff) {
     if (diff <= 0 || !si) return 0;
-    var s = 0;
-    if (si <= diff) s += 1;
-    if (si <= diff - 18) s += 1;
-    return s;
+    return Math.floor(diff / 18) + (si <= diff % 18 ? 1 : 0);
   }
 
   /* Strokes a player with the given full playing handicap gets on a hole of stroke index si (1 = hardest). Handicaps over 18 get a second
@@ -1329,7 +1329,7 @@ if (typeof module !== "undefined") module.exports = MP;
 
   /* ---------- setup screen ---------- */
   function hcpTable(calc) {
-    return '<table><tr><th class="l">Player</th><th>Index</th><th>Course</th><th>Playing</th><th>Strokes</th></tr>' +
+    return '<table><tr><th class="l">Player</th><th>Index</th><th>Course hcp</th><th>Playing hcp</th><th>Strokes</th></tr>' +
       calc.active.map(function (p) {
         return '<tr><td class="l">' + esc(nm(p)) + "</td><td>" + esc(String(S.indexes[p]).trim() || "–") + "</td><td>" + calc.courseH[p] + "</td><td>" + calc.playingH[p] + "</td><td><b>" + (calc.diff[p] < 0 ? "+" + -calc.diff[p] : calc.diff[p]) + "</b></td></tr>";
       }).join("") + "</table>";
@@ -1598,7 +1598,7 @@ if (typeof module !== "undefined") module.exports = MP;
       '<option value="Custom"' + (S.tee === "Custom" ? " selected" : "") + ">Custom rating / slope</option></select>" +
       '<div class="grid3" style="margin-top:10px">' + txt("Slope", "slope", S.slope, "", "decimal") + txt("Rating", "rating", S.rating, "", "decimal") + txt("Allowance %", "allowance", S.allowance, "", "decimal") + "</div>" +
       sw("Give handicap strokes", "useHcp", S.useHcp) + '<div id="hcp">' + hcpTable(calc) + "</div>" +
-      '<p class="sub small">Course hcp = index × slope ÷ 113 + (rating − par). Playing hcp = course × allowance. ' + (S.game === "stableford" ? "Stableford: every player gets strokes from their own full playing handicap, on the hardest holes first. A plus handicap (shown as +N) gives strokes back on the easiest holes." : "Strokes are taken off the lowest playing handicap, on the hardest holes first.") + '</p></div>';
+      '<p class="sub small"><b>Index</b> is today’s handicap index. <b>Course hcp</b> is that index after this tee: index × (slope ÷ 113) + (rating − par), rounded to the nearest whole number (.5 rounds up, including a plus index). <b>Playing hcp</b> is the course handicap × the allowance. <b>Strokes</b> are the gap between playing handicaps, not the raw index gap, so indexes one apart can be two strokes, given on the hardest holes first.' + (S.game === "stableford" ? " Stableford instead gives every player strokes from their own full playing handicap; a plus handicap (shown as +N) gives strokes back on the easiest holes." : "") + '</p></div>';
     h += "<h2>" + { nassau: "Bets · Nassau (per player)", skins: "Bets · Skins", vegas: "Bets · Las Vegas", wolf: "Bets · Wolf", stableford: "Bets · Stableford" }[S.game] + '</h2><div class="card">' + gameOptions() + "</div>";
     h += "<h2>Add-on bet (optional)</h2><div class=\"card\">" + sw("Birdies (on top of " + { nassau: "Nassau", skins: "Skins", vegas: "Las Vegas", wolf: "Wolf", stableford: "Stableford" }[S.game] + ")", "birdOn", S.birdOn);
     if (S.birdOn) h += '<div class="grid2">' + txt("$ per birdie", "birdAmt", S.birdAmt, "", "decimal") + "<div></div></div>" + sw("Count net birdies instead of gross", "birdNet", S.birdNet) +
