@@ -179,13 +179,14 @@ var MP = (function () {
   var DEFAULT_SI = [15, 5, 7, 3, 13, 1, 9, 11, 17, 10, 2, 6, 12, 4, 16, 8, 18, 14];
   var DEFAULT_PAR = [4, 4, 4, 4, 3, 4, 4, 4, 3, 4, 4, 3, 5, 4, 3, 4, 4, 5];
   var TEES = [
-    { name: "Orange", yards: 6602, rating: "73.0", slope: "134" },
-    { name: "Orange/Blue", yards: 6387, rating: "71.3", slope: "127" },
-    { name: "Blue", yards: 6191, rating: "70.4", slope: "125" },
-    { name: "Runyan", yards: 5848, rating: "68.7", slope: "121" },
-    { name: "White", yards: 5657, rating: "67.7", slope: "119" },
-    { name: "White/Green", yards: 5214, rating: "65.7", slope: "113" },
-    { name: "Green", yards: 5041, rating: "64.9", slope: "110" }
+    { name: "Orange", yards: 6640, rating: "73.0", slope: "134" },
+    { name: "Orange/Blue", yards: 6386, rating: "71.8", slope: "131" },
+    { name: "Blue", yards: 6095, rating: "70.4", slope: "128" },
+    { name: "Blue/White", yards: 5792, rating: "69.0", slope: "125" },
+    { name: "White", yards: 5626, rating: "68.2", slope: "123" },
+    { name: "White/Green", yards: 5264, rating: "66.5", slope: "119" },
+    { name: "Green", yards: 5003, rating: "65.3", slope: "116" },
+    { name: "Yellow", yards: 4488, rating: "63.0", slope: "110" }
   ];
   /* ---- Course model (built-in Annandale + user courses) ---- */
   /* NOTE: the "matchplay-course" format id and every "matchplay.golf.*" storage key below are LEGACY internal ids from when the app was called Match Play.
@@ -213,7 +214,7 @@ var MP = (function () {
       idxSrc: [null, null, null, null, null], /* where an auto-filled index came from; null = typed by the user / blank */
       wheelPairs: [true, true, true],
       useHcp: true,
-      tee: "Blue", slope: "125", rating: "70.4", teePar: "",
+      tee: "Blue", slope: "128", rating: "70.4", teePar: "",
       course: snapshotOf(ANNANDALE), courseId: "annandale",
       allowance: "90",
       front: "10", back: "10", overall: "10",
@@ -546,24 +547,50 @@ var MP = (function () {
     var a = snapshotOf(state.course), b = snapshotOf(live); a.id = b.id = "";
     return JSON.stringify(a) !== JSON.stringify(b);
   }
-  /* A round keeps its own copy of the course. If that copy is still the stock Annandale (same holes and other tees),
-     replace it with the current built-in so a tee-data correction is picked up. Re-apply the selected tee only when
-     slope and rating are still that tee's saved numbers. Custom tees, edited holes, and other courses are left alone. Scores are not touched. */
+  /* Rating/slope/yards previously shipped for stock Annandale, plus the current GHIN set. A saved round whose tees are
+     exactly one of these sets can take the new built-in list. Runyan is not in the GHIN list, so a round still on it keeps that name and its numbers. */
+  var ANNANDALE_KNOWN_TEES = {
+    orange: [[73, 134, 6640], [73, 134, 6602], [72.3, 129, 6602]],
+    "orange/blue": [[71.8, 131, 6386], [71.3, 127, 6387]],
+    blue: [[70.4, 128, 6095], [70.4, 125, 6191]],
+    "blue/white": [[69, 125, 5792]],
+    runyan: [[68.7, 121, 5848]],
+    white: [[68.2, 123, 5626], [67.7, 119, 5657]],
+    "white/green": [[66.5, 119, 5264], [65.7, 113, 5214]],
+    green: [[65.3, 116, 5003], [64.9, 110, 5041]],
+    yellow: [[63, 110, 4488]]
+  };
+  function annandaleTeeKnown(t) {
+    var list = ANNANDALE_KNOWN_TEES[normName(t && t.name)];
+    if (!list || t.par) return false;
+    for (var i = 0; i < list.length; i++) {
+      if (Math.abs(Number(t.rating) - list[i][0]) < 0.001 && Number(t.slope) === list[i][1] && (t.yards || 0) === list[i][2]) return true;
+    }
+    return false;
+  }
+  /* A round keeps its own copy of the course. If that copy is still a stock Annandale, replace the tee list with the current
+     built-in. Re-apply the selected tee only when its name is still on the course and slope/rating are still that tee's saved
+     numbers. Custom ratings, edited holes, removed tees, and other courses are left alone. Scores are not touched. */
   function refreshBuiltinAnnandale(state) {
     if (!state || state.courseId !== "annandale" || !state.course || !state.course.tees) return false;
     var live = ANNANDALE, saved = state.course;
     if (saved.name !== live.name || !saved.par || !saved.si) return false;
-    if (saved.par.length !== live.par.length || saved.si.length !== live.si.length || saved.tees.length !== live.tees.length) return false;
+    if (saved.par.length !== live.par.length || saved.si.length !== live.si.length) return false;
     for (var i = 0; i < live.par.length; i++) if (Number(saved.par[i]) !== live.par[i] || Number(saved.si[i]) !== live.si[i]) return false;
-    for (var t = 0; t < live.tees.length; t++) {
-      var a = saved.tees[t], b = live.tees[t];
-      if (!a || normName(a.name) !== normName(b.name)) return false;
-      if ((a.yards || 0) !== (b.yards || 0) || (a.par || 0) !== (b.par || 0)) return false;
-      if (normName(a.name) !== "orange" && (Number(a.rating) !== Number(b.rating) || Number(a.slope) !== Number(b.slope))) return false;
+    var names = [], seen = {};
+    for (var t = 0; t < saved.tees.length; t++) {
+      if (!annandaleTeeKnown(saved.tees[t])) return false;
+      var key = normName(saved.tees[t].name);
+      if (seen[key]) return false;
+      seen[key] = 1; names.push(key);
     }
+    names.sort();
+    var oldSet = "blue,green,orange,orange/blue,runyan,white,white/green";
+    var newSet = "blue,blue/white,green,orange,orange/blue,white,white/green,yellow";
+    if (names.join(",") !== oldSet && names.join(",") !== newSet) return false;
     var teeName = state.tee, slope = state.slope, rating = state.rating, savedTee = null;
     saved.tees.forEach(function (x) { if (!savedTee && normName(x.name) === normName(teeName)) savedTee = x; });
-    var stockSelection = savedTee && Number(slope) === Number(savedTee.slope) && Number(rating) === Number(savedTee.rating);
+    var stockSelection = savedTee && Number(slope) === Number(savedTee.slope) && Math.abs(Number(rating) - Number(savedTee.rating)) < 0.001;
     state.course = snapshotOf(live);
     if (stockSelection) applyTee(state, teeName);
     return true;
@@ -2044,7 +2071,7 @@ if (typeof module !== "undefined") module.exports = MP;
     if (!window.confirm("Replace the current round with the sample wheel round (Al, Bob, Chris, Dan, Eddie) on Annandale?")) return;
     var d = MP.SAMPLE;
     undo = []; MP.applyCourse(S, MP.ANNANDALE, "Blue"); S.game = "nassau"; S.wolf = MP.emptyWolf(); S.putts = MP.emptyHoleStrs(); S.snakeLast = MP.emptyHoleStrs(); S.format = "wheel"; S.names = d.names.slice(); S.indexes = d.indexes.slice(); S.idxSrc = [null, null, null, null, null]; S.idxOver = [null, null, null, null, null]; S.scores = d.scores.map(function (r) { return r.map(String); });
-    S.tee = "Blue"; S.slope = "125"; S.rating = "70.4"; S.allowance = "90"; S.front = S.back = S.overall = "10"; S.autoPress = true; S.useHcp = true; S.view = 0; S.hole = 0; tried = false;
+    S.tee = "Blue"; S.slope = "128"; S.rating = "70.4"; S.allowance = "90"; S.front = S.back = S.overall = "10"; S.autoPress = true; S.useHcp = true; S.view = 0; S.hole = 0; tried = false;
     save(); render();
   }
 

@@ -116,7 +116,7 @@ test("a different tee on the same course changes course handicaps", function () 
 test("Annandale Blue is 6 and 7 for indexes 5 and 6, one stroke: the 6-vs-8 case is the tee, not every course", function () {
   var s = round({ course: annandale, tee: "Blue", indexes: ["5", "6", "", "", ""] });
   var c = MP.compute(s);
-  assert.strictEqual(s.slope, "125");
+  assert.strictEqual(s.slope, "128");
   assert.strictEqual(s.rating, "70.4");
   assert.strictEqual(MP.coursePar(s), 70);
   same(c.courseH.slice(0, 2), [6, 7]);
@@ -208,7 +208,7 @@ test("Annandale Orange uses the supplied 73.0/134 and gives Hosp 5.6 three strok
   var s = round({ course: annandale, tee: "Orange", indexes: ["5.6", "3.7", "", "", ""], allowance: "100", format: "singles" });
   assert.strictEqual(s.slope, "134");
   assert.strictEqual(Number(s.rating), 73);
-  assert.strictEqual(s.course.tees[0].yards, 6602);
+  assert.strictEqual(s.course.tees[0].yards, 6640);
   assert.strictEqual(MP.coursePar(s), 70);
   var c = MP.compute(s);
   same(c.courseH.slice(0, 2), [10, 7]);
@@ -226,40 +226,62 @@ test("Annandale Orange uses the supplied 73.0/134 and gives Hosp 5.6 three strok
   assert.strictEqual(t.playingH[0] - t.playingH[1], 3);
   var blue = annandale.tees.filter(function (x) { return x.name === "Blue"; })[0];
   assert.strictEqual(blue.rating, 70.4);
-  assert.strictEqual(blue.slope, 125);
+  assert.strictEqual(blue.slope, 128);
+  same(annandale.tees.map(function (t) { return [t.name, t.rating, t.slope, t.yards]; }), [
+    ["Orange", 73, 134, 6640], ["Orange/Blue", 71.8, 131, 6386], ["Blue", 70.4, 128, 6095], ["Blue/White", 69, 125, 5792],
+    ["White", 68.2, 123, 5626], ["White/Green", 66.5, 119, 5264], ["Green", 65.3, 116, 5003], ["Yellow", 63, 110, 4488]
+  ]);
 });
 
-test("a saved Annandale round on Orange picks up 73.0/134 and keeps scores; other courses stay put", function () {
-  var old = MP.snapshotOf(annandale);
-  old.tees[0] = { name: "Orange", rating: 72.3, slope: 129, yards: 6602 };
-  var s = MP.defaultState();
-  s.course = old; s.courseId = "annandale"; s.tee = "Orange"; s.slope = "129"; s.rating = "72.3"; s.teePar = "";
-  s.par = annandale.par.map(String); s.si = annandale.si.map(String);
-  s.scores = MP.emptyScores(); s.scores[0][0] = "5"; s.scores[1][3] = "4";
-  assert.strictEqual(MP.refreshBuiltinAnnandale(s), true);
-  assert.strictEqual(Number(s.slope), 134);
-  assert.strictEqual(Number(s.rating), 73);
-  assert.strictEqual(s.scores[0][0], "5");
-  assert.strictEqual(s.scores[1][3], "4");
-  assert.strictEqual(Number(s.course.tees[0].slope), 134);
-  assert.strictEqual(Number(s.course.tees[1].slope), 127);
-  var blueRound = MP.defaultState();
-  blueRound.course = old; blueRound.courseId = "annandale"; blueRound.tee = "Blue"; blueRound.slope = "125"; blueRound.rating = "70.4";
-  blueRound.par = annandale.par.map(String); blueRound.si = annandale.si.map(String);
-  blueRound.scores = MP.emptyScores(); blueRound.scores[0][5] = "6";
+test("a saved stock Annandale round picks up the GHIN tees, keeps its tee name and scores", function () {
+  var old = {
+    id: "annandale", name: "Annandale Golf Club", location: "Pasadena, CA",
+    par: annandale.par.slice(), si: annandale.si.slice(),
+    tees: [
+      { name: "Orange", rating: 73, slope: 134, yards: 6602 },
+      { name: "Orange/Blue", rating: 71.3, slope: 127, yards: 6387 },
+      { name: "Blue", rating: 70.4, slope: 125, yards: 6191 },
+      { name: "Runyan", rating: 68.7, slope: 121, yards: 5848 },
+      { name: "White", rating: 67.7, slope: 119, yards: 5657 },
+      { name: "White/Green", rating: 65.7, slope: 113, yards: 5214 },
+      { name: "Green", rating: 64.9, slope: 110, yards: 5041 }
+    ]
+  };
+  function saved(tee, slope, rating) {
+    var s = MP.defaultState();
+    s.course = JSON.parse(JSON.stringify(old)); s.courseId = "annandale";
+    s.tee = tee; s.slope = slope; s.rating = rating; s.teePar = "";
+    s.par = annandale.par.map(String); s.si = annandale.si.map(String);
+    s.scores = MP.emptyScores(); s.scores[0][0] = "5";
+    return s;
+  }
+  var orange = saved("Orange", "134", "73");
+  assert.strictEqual(MP.refreshBuiltinAnnandale(orange), true);
+  assert.strictEqual(orange.tee, "Orange");
+  assert.strictEqual(Number(orange.slope), 134);
+  assert.strictEqual(Number(orange.rating), 73);
+  assert.strictEqual(orange.course.tees[0].yards, 6640);
+  assert.strictEqual(orange.scores[0][0], "5");
+  assert.strictEqual(orange.course.tees.length, 8);
+  var blueRound = saved("Blue", "125", "70.4");
   MP.refreshBuiltinAnnandale(blueRound);
-  assert.strictEqual(blueRound.slope, "125");
+  assert.strictEqual(blueRound.tee, "Blue");
+  assert.strictEqual(blueRound.slope, "128");
   assert.strictEqual(blueRound.rating, "70.4");
-  assert.strictEqual(blueRound.scores[0][5], "6");
-  assert.strictEqual(Number(blueRound.course.tees[0].rating), 73);
-  var custom = MP.defaultState();
-  custom.courseId = "custom"; custom.course = MP.snapshotOf(old); custom.slope = "129"; custom.rating = "72.3";
+  assert.strictEqual(blueRound.scores[0][0], "5");
+  var runyan = saved("Runyan", "121", "68.7");
+  MP.refreshBuiltinAnnandale(runyan);
+  assert.strictEqual(runyan.tee, "Runyan");
+  assert.strictEqual(runyan.slope, "121");
+  assert.strictEqual(runyan.rating, "68.7");
+  assert.strictEqual(runyan.course.tees.some(function (t) { return t.name === "Runyan"; }), false);
+  var custom = saved("Orange", "134", "73");
+  custom.courseId = "custom";
   assert.strictEqual(MP.refreshBuiltinAnnandale(custom), false);
-  assert.strictEqual(custom.slope, "129");
-  var typed = MP.defaultState();
-  typed.course = old; typed.courseId = "annandale"; typed.tee = "Custom"; typed.slope = "140"; typed.rating = "74.0";
-  typed.par = annandale.par.map(String); typed.si = annandale.si.map(String);
+  assert.strictEqual(custom.course.tees[0].yards, 6602);
+  var typed = saved("Custom", "140", "74.0");
   MP.refreshBuiltinAnnandale(typed);
+  assert.strictEqual(typed.tee, "Custom");
   assert.strictEqual(typed.slope, "140");
   assert.strictEqual(typed.rating, "74.0");
 });

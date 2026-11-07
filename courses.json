@@ -8,13 +8,14 @@
       "par": [4,4,4,4,3,4,4,4,3,4,4,3,5,4,3,4,4,5],
       "handicap": [15,5,7,3,13,1,9,11,17,10,2,6,12,4,16,8,18,14],
       "tees": [
-        { "name": "Orange", "rating": 73.0, "slope": 134, "yards": 6602 },
-        { "name": "Orange/Blue", "rating": 71.3, "slope": 127, "yards": 6387 },
-        { "name": "Blue", "rating": 70.4, "slope": 125, "yards": 6191 },
-        { "name": "Runyan", "rating": 68.7, "slope": 121, "yards": 5848 },
-        { "name": "White", "rating": 67.7, "slope": 119, "yards": 5657 },
-        { "name": "White/Green", "rating": 65.7, "slope": 113, "yards": 5214 },
-        { "name": "Green", "rating": 64.9, "slope": 110, "yards": 5041 }
+        { "name": "Orange", "rating": 73.0, "slope": 134, "yards": 6640 },
+        { "name": "Orange/Blue", "rating": 71.8, "slope": 131, "yards": 6386 },
+        { "name": "Blue", "rating": 70.4, "slope": 128, "yards": 6095 },
+        { "name": "Blue/White", "rating": 69.0, "slope": 125, "yards": 5792 },
+        { "name": "White", "rating": 68.2, "slope": 123, "yards": 5626 },
+        { "name": "White/Green", "rating": 66.5, "slope": 119, "yards": 5264 },
+        { "name": "Green", "rating": 65.3, "slope": 116, "yards": 5003 },
+        { "name": "Yellow", "rating": 63.0, "slope": 110, "yards": 4488 }
       ]
     },
     {
