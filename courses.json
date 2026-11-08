@@ -232,6 +232,18 @@
         { "name": "Grey (Women)", "rating": 74.6, "slope": 144, "par": 72, "yards": 5677 },
         { "name": "Red (Women)", "rating": 73.2, "slope": 132, "par": 72, "yards": 5341 }
       ]
+    },
+    {
+      "id": "chevy-chase-glendale",
+      "name": "Chevy Chase Country Club",
+      "location": "Glendale, CA",
+      "par": [5,5,3,4,3,3,4,3,4,5,4,3,4,3,3,4,3,4],
+      "handicap": [13,9,17,5,3,7,1,11,15,12,2,14,8,6,16,4,10,18],
+      "tees": [
+        { "name": "Black/Blue", "rating": 65.8, "slope": 124, "par": 67, "yards": 5032 },
+        { "name": "Blue/White", "rating": 64.2, "slope": 120, "par": 67 },
+        { "name": "White/Red", "rating": 62.6, "slope": 116, "par": 67 }
+      ]
     }
   ]
 }

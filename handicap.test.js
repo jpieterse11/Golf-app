@@ -286,5 +286,32 @@ test("a saved stock Annandale round picks up the GHIN tees, keeps its tee name a
   assert.strictEqual(typed.rating, "74.0");
 });
 
+test("Chevy Chase Glendale is the verified GHIN 18-hole card, and unknown tee lengths are omitted", function () {
+  var raw = courses.filter(function (c) { return c.id === "chevy-chase-glendale"; })[0];
+  assert.ok(raw, "course missing");
+  var checked = MP.checkCourse(raw);
+  assert.strictEqual(checked.ok, true, checked.errors && checked.errors.join("; "));
+  var c = checked.course;
+  assert.strictEqual(c.name, "Chevy Chase Country Club");
+  assert.strictEqual(c.location, "Glendale, CA");
+  same(c.par, [5, 5, 3, 4, 3, 3, 4, 3, 4, 5, 4, 3, 4, 3, 3, 4, 3, 4]);
+  same(c.si, [13, 9, 17, 5, 3, 7, 1, 11, 15, 12, 2, 14, 8, 6, 16, 4, 10, 18]);
+  assert.strictEqual(c.par.slice(0, 9).reduce(function (a, b) { return a + b; }, 0), 34);
+  assert.strictEqual(c.par.slice(9).reduce(function (a, b) { return a + b; }, 0), 33);
+  same(c.tees.map(function (t) { return [t.name, t.rating, t.slope, t.par || null, t.yards || null]; }), [
+    ["Black/Blue", 65.8, 124, 67, 5032],
+    ["Blue/White", 64.2, 120, 67, null],
+    ["White/Red", 62.6, 116, 67, null]
+  ]);
+  assert.strictEqual(JSON.stringify(raw.tees[1]).indexOf("5032"), -1);
+  assert.strictEqual(JSON.stringify(raw.tees[2]).indexOf("5032"), -1);
+  var s = round({ course: c, tee: "Black/Blue", indexes: ["10", "10", "", "", ""], allowance: "100" });
+  assert.strictEqual(s.slope, "124");
+  assert.strictEqual(s.rating, "65.8");
+  assert.strictEqual(MP.coursePar(s), 67);
+  assert.strictEqual(courses.some(function (x) { return x.id === "annandale"; }), true);
+  assert.strictEqual(courses.some(function (x) { return /royal-cape/i.test(x.id) || /Royal Cape/i.test(x.name); }), false);
+});
+
 if (failed) { console.error("\n" + failed + " failed"); process.exit(1); }
 console.log("\nall handicap tests passed");
