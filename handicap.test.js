@@ -310,7 +310,37 @@ test("Chevy Chase Glendale is the verified GHIN 18-hole card, and unknown tee le
   assert.strictEqual(s.rating, "65.8");
   assert.strictEqual(MP.coursePar(s), 67);
   assert.strictEqual(courses.some(function (x) { return x.id === "annandale"; }), true);
-  assert.strictEqual(courses.some(function (x) { return /royal-cape/i.test(x.id) || /Royal Cape/i.test(x.name); }), false);
+});
+
+test("Royal Cape uses the BlueGolf card: par 72, one stroke index, six rated tees, no guessed lengths", function () {
+  var raw = courses.filter(function (c) { return c.id === "royal-cape"; })[0];
+  assert.ok(raw, "course missing");
+  var checked = MP.checkCourse(raw);
+  assert.strictEqual(checked.ok, true, checked.errors && checked.errors.join("; "));
+  var c = checked.course;
+  assert.strictEqual(c.name, "Royal Cape Golf Club");
+  assert.strictEqual(c.location, "Wynberg, Cape Town, South Africa");
+  same(c.par, [4, 4, 4, 3, 5, 4, 5, 3, 4, 4, 5, 4, 3, 4, 3, 5, 4, 4]);
+  assert.strictEqual(c.par.reduce(function (a, b) { return a + b; }, 0), 72);
+  same(c.si, [5, 11, 1, 17, 7, 9, 13, 15, 3, 6, 18, 16, 10, 2, 14, 8, 4, 12]);
+  var seen = {};
+  c.si.forEach(function (n) { seen[n] = (seen[n] || 0) + 1; });
+  for (var k = 1; k <= 18; k++) assert.strictEqual(seen[k], 1);
+  same(c.tees.map(function (t) { return [t.name, t.rating, t.slope, t.par, t.yards || null]; }), [
+    ["Yellow (Men)", 72.4, 134, 72, null],
+    ["White (Men)", 70.4, 133, 72, null],
+    ["Blue (Men)", 69, 127, 72, null],
+    ["Red (Men)", 68, 123, 72, null],
+    ["White (Women)", 77, 140, 72, null],
+    ["Red (Women)", 73.7, 133, 72, null]
+  ]);
+  raw.tees.forEach(function (t) { assert.strictEqual(Object.prototype.hasOwnProperty.call(t, "yards"), false); });
+  var s = round({ course: c, tee: "Yellow (Men)", indexes: ["10", "12", "", "", ""], allowance: "100" });
+  assert.strictEqual(s.slope, "134");
+  assert.strictEqual(Number(s.rating), 72.4);
+  assert.strictEqual(MP.coursePar(s), 72);
+  assert.strictEqual(courses.some(function (x) { return x.id === "chevy-chase-glendale"; }), true);
+  assert.strictEqual(courses.some(function (x) { return x.id === "annandale"; }), true);
 });
 
 if (failed) { console.error("\n" + failed + " failed"); process.exit(1); }
