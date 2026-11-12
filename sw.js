@@ -1,4 +1,4 @@
-const C='golfscoring-v30';
+const C='golfscoring-v31';
 const FILES=['./','./index.html','./manifest.json','./icon-192.png','./icon-512.png','./icon-180.png','./icon.svg','./banner.jpg','./results-photo.jpg','./course-banner.jpg'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(C).then(c=>c.addAll(FILES)).then(()=>self.skipWaiting()));});
 // activate: delete every cache except the current one, which includes the old matchplay-* caches (app was renamed Golf Scoring Games).

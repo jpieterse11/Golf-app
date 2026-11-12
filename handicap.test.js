@@ -343,5 +343,41 @@ test("Royal Cape uses the BlueGolf card: par 72, one stroke index, six rated tee
   assert.strictEqual(courses.some(function (x) { return x.id === "annandale"; }), true);
 });
 
+test("GHIN post message is gross scores only, with the Nov 7 Annandale 41/41/82 card", function () {
+  var s = MP.defaultState();
+  s.format = "singles"; s.game = "nassau"; s.useHcp = true; s.allowance = "100";
+  s.names = ["Jan Pieterse", "Mike Speaker", "", "", ""];
+  s.indexes = ["6.9", "3.7", "", "", ""];
+  s.tee = "Orange"; s.slope = "134"; s.rating = "73.0"; s.teePar = "70";
+  s.course.name = "Annandale Golf Club";
+  s.scores = MP.emptyScores();
+  s.scores[0] = ["5", "5", "5", "4", "4", "6", "5", "5", "2", "4", "4", "4", "6", "4", "3", "6", "6", "4"];
+  var msg = MP.ghinPostMessage(s, 0, "2026-11-07");
+  assert.strictEqual(msg.text, [
+    "GHIN POST REQUEST",
+    "Golfer: Jan Pieterse",
+    "Date: 2026-11-07",
+    "Course: Annandale Golf Club",
+    "Tee: Orange (73.0/134, par 70)",
+    "Holes 1-9: 5 5 5 4 4 6 5 5 2 = 41",
+    "Holes 10-18: 4 4 4 6 4 3 6 6 4 = 41",
+    "Total: 82"
+  ].join("\n"));
+  assert.strictEqual(msg.complete, true);
+  assert.strictEqual(msg.front, 41);
+  assert.strictEqual(msg.back, 41);
+  assert.strictEqual(msg.total, 82);
+  assert.strictEqual(MP.ghinDefaultPlayer(s), 0);
+  s.names[0] = "Mike Speaker"; s.names[1] = "Jan Pieterse";
+  assert.strictEqual(MP.ghinDefaultPlayer(s), 1);
+  s.scores[0][2] = "";
+  var gap = MP.ghinPostMessage(s, 0, "2026-11-07");
+  assert.strictEqual(gap.complete, false);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(gap.missing)), [3]);
+  assert.ok(gap.text.indexOf("Holes 1-9: 5 5 blank 4 4 6 5 5 2 = 36") >= 0);
+  assert.ok(gap.text.indexOf("Missing: holes 3") >= 0);
+  assert.strictEqual(gap.total, 77);
+});
+
 if (failed) { console.error("\n" + failed + " failed"); process.exit(1); }
 console.log("\nall handicap tests passed");
