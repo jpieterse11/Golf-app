@@ -104,9 +104,9 @@ summary{min-height:48px;display:flex;align-items:center;font-weight:600;cursor:p
 .star:active,.del:active{opacity:.6}
 input.bad{border-color:var(--red);border-width:2px;background:var(--warn)}
 .msg.bad{border:2px solid var(--red);margin:10px 0}
-.idx{display:flex;gap:6px}
+.idx{display:flex;gap:6px;align-items:stretch}
 .idx input{flex:1;min-width:0}
-.plus{width:48px;min-height:48px;border-radius:10px;border:1px solid var(--line);background:var(--soft);color:var(--text);font:inherit;font-size:24px;font-weight:700;flex:none;padding:0}
+.plus{min-width:64px;width:auto;min-height:48px;border-radius:10px;border:1px solid var(--line);background:var(--soft);color:var(--text);font:inherit;font-size:15px;font-weight:700;flex:none;padding:0 10px}
 .plus.on{background:var(--green);color:var(--greenfg);border-color:var(--green)}
 #toast{position:fixed;left:10px;right:10px;top:calc(8px + env(safe-area-inset-top));z-index:30;pointer-events:none;display:flex;flex-direction:column;gap:6px;max-width:500px;margin:0 auto}
 .tt{pointer-events:none;background:var(--text);color:var(--bg);border-radius:12px;padding:10px 12px;font-size:15px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.35);border-left:6px solid var(--green);animation:tin .18s ease-out}
@@ -153,14 +153,15 @@ select.bad{border-color:var(--red);border-width:2px;background:var(--warn)}
 .tag.amber{color:var(--amber)}
 .tag.blue{color:var(--blue,#2563eb)}
 .lnk{background:none;border:0;padding:0;margin:3px 0 0 4px;font:inherit;font-size:11px;font-weight:700;color:var(--green);text-decoration:underline;cursor:pointer;min-height:0}
-.pr .ix{width:92px;flex:none}
+.pr .ix{width:96px;flex:none;display:flex;flex-direction:column;align-items:stretch;gap:4px}
 .pr .ix input[type=text]{flex:none;width:100%;text-align:center;min-height:44px;padding:4px 6px;font-size:17px}
+.pr .ix .plus{min-width:0;width:100%;min-height:40px;font-size:14px;padding:0 4px}
+.pr .ix .tag{white-space:normal}
 .prh{display:flex;gap:8px;padding:0 0 4px;font-size:12px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.04em}
 .ixbar{border-left:6px solid var(--ok);display:flex;gap:10px;align-items:center}
 .ixbar.amber{border-left-color:var(--amber);background:var(--warn)}
 .ixbar .btn{width:auto;min-height:44px;padding:0 16px;flex:none}
 .pr .ix{position:relative}
-.pr .ix input[type=text]{padding-right:34px}
 .tp{margin-top:5px;min-height:34px;padding:0 9px;white-space:nowrap;font:inherit;font-size:13px;font-weight:600;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--sub)}
 .tp.on{background:var(--warn);color:var(--text);border-color:var(--text)}
 .snk .wp .btn{min-height:44px}
@@ -917,7 +918,7 @@ var MP = (function () {
   var FAVORITES = ["Jan Pieterse", "Phillip Hosp", "Elliott Neumayer", "Justin Mowery", "Joesph Viola"];
   function normName(n) { return String(n == null ? "" : n).trim().replace(/\s+/g, " ").toLowerCase(); }
   function cleanName(n) { return String(n == null ? "" : n).trim().replace(/\s+/g, " "); }
-  function validIndex(v) { return /^\+?\d{1,2}(\.\d+)?$/.test(String(v == null ? "" : v).trim()); }
+  function validIndex(v) { return /^[+-]?\d{1,2}(\.\d+)?$/.test(String(v == null ? "" : v).trim()); }
   function seedRoster() { return FAVORITES.map(function (f) { return { name: f, fav: true }; }); }
   /* Active players (for this format) whose index is blank/invalid. Only matters when handicap strokes are on. '+1.2' is valid. */
   function missingIndexes(state) {
@@ -1003,6 +1004,15 @@ var MP = (function () {
     if (neg ? n > 10 : n > 54) return null;
     if (neg && n === 0) return null;
     return (neg ? "+" : "") + t;
+  }
+  /* Flip a typed index between a normal index and a plus index. "" becomes "+", "+" becomes "". "-2.3" is already a plus index, so it turns off to "2.3". */
+  function togglePlusIndex(v) {
+    var t = String(v == null ? "" : v).trim();
+    var shown = cleanIndex(t);
+    var base = shown || t;
+    if (!base) return "+";
+    if (base.charAt(0) === "+" || base.charAt(0) === "-") return base.slice(1);
+    return "+" + base;
   }
   /* indexes.json -> {ok, errors, asOf, source, players:{normalizedName:{name,index}}, aliases:{normAlias:normCanonical}, skipped:[names]} */
   function parseIndexFile(input) {
@@ -1321,7 +1331,7 @@ var MP = (function () {
     mergeFeedPlayers: mergeFeedPlayers, loadDismissed: loadDismissed, addDismissed: addDismissed, DISMISS_KEY: DISMISS_KEY, ROSTER_KEY: ROSTER_KEY, FAVORITES: FAVORITES, normName: normName, cleanName: cleanName, validIndex: validIndex, missingIndexes: missingIndexes, seedRoster: seedRoster, parseRoster: parseRoster,
     loadRoster: loadRoster, saveRoster: saveRoster, sortRoster: sortRoster, rosterFind: rosterFind, roundHasScores: roundHasScores, isSampleRound: isSampleRound, rosterAutoSave: rosterAutoSave, newRoundReset: newRoundReset,
     DEFAULT_SI: DEFAULT_SI, DEFAULT_PAR: DEFAULT_PAR, TEES: TEES, HOLES: HOLES, WHEEL_PAIRS: WHEEL_PAIRS, SAMPLE: SAMPLE,
-    MANUAL_KEY: MANUAL_KEY, IDXCACHE_KEY: IDXCACHE_KEY, isoDate: isoDate, validIsoDate: validIsoDate, fmtDate: fmtDate, isStaleDate: isStaleDate, daysBetween: daysBetween, isOldList: isOldList, cleanIndex: cleanIndex, parseIndexFile: parseIndexFile,
+    MANUAL_KEY: MANUAL_KEY, IDXCACHE_KEY: IDXCACHE_KEY, isoDate: isoDate, validIsoDate: validIsoDate, fmtDate: fmtDate, isStaleDate: isStaleDate, daysBetween: daysBetween, isOldList: isOldList, cleanIndex: cleanIndex, togglePlusIndex: togglePlusIndex, parseIndexFile: parseIndexFile,
     loadIndexCache: loadIndexCache, fetchIndexes: fetchIndexes, loadManual: loadManual, saveManual: saveManual, setManualIndex: setManualIndex, renameManual: renameManual, removeManual: removeManual,
     resolveIndex: resolveIndex, setManualLock: setManualLock, autofillIndexes: autofillIndexes, syncIndexes: syncIndexes, roundHasContent: roundHasContent,
     LIB_KEY: LIB_KEY, REQ_KEY: REQ_KEY, parseCourseLibrary: parseCourseLibrary, loadLibraryCache: loadLibraryCache, fetchCourseLibrary: fetchCourseLibrary,
@@ -1420,10 +1430,12 @@ if (typeof module !== "undefined") module.exports = MP;
   document.getElementById("toast").addEventListener("click", function () { this.innerHTML = ""; });
 
   /* ---------- setup screen ---------- */
+  function showIndex(v) { var c = MP.cleanIndex(v); return c || String(v == null ? "" : v).trim(); }
+  function indexIsPlus(v) { return showIndex(v).charAt(0) === "+"; }
   function hcpTable(calc) {
     return '<table><tr><th class="l">Player</th><th>Index</th><th>Course hcp</th><th>Playing hcp</th><th>Strokes</th></tr>' +
       calc.active.map(function (p) {
-        return '<tr><td class="l">' + esc(nm(p)) + "</td><td>" + esc(String(S.indexes[p]).trim() || "–") + "</td><td>" + calc.courseH[p] + "</td><td>" + calc.playingH[p] + "</td><td><b>" + (calc.diff[p] < 0 ? "+" + -calc.diff[p] : calc.diff[p]) + "</b></td></tr>";
+        return '<tr><td class="l">' + esc(nm(p)) + "</td><td>" + esc(showIndex(S.indexes[p]) || "–") + "</td><td>" + calc.courseH[p] + "</td><td>" + calc.playingH[p] + "</td><td><b>" + (calc.diff[p] < 0 ? "+" + -calc.diff[p] : calc.diff[p]) + "</b></td></tr>";
       }).join("") + "</table>";
   }
   function playerLabel(p) {
@@ -1462,13 +1474,13 @@ if (typeof module !== "undefined") module.exports = MP;
   function idxTime(ms) { var d = new Date(ms); return MP.fmtDate(MP.isoDate(d), false) + ", " + d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
   function idxBad(p) { return S.useHcp && !MP.validIndex(S.indexes[p]); }
   function idxField(p) {
-    var v = String(S.indexes[p] || "").trim(), bad = tried && idxBad(p), src = S.idxSrc && S.idxSrc[p];
-    return '<div><label class="f">Today\'s handicap index</label><div class="idx"><input type="text" inputmode="decimal" autocomplete="off" autocapitalize="off" spellcheck="false" data-k="indexes" data-i="' + p + '" value="' + esc(v) + '" placeholder="e.g. 12.4" class="' + (bad ? "bad" : "") + '" aria-label="Today\'s handicap index, player ' + (p + 1) + '">' +
-      '<button type="button" class="plus' + (v.charAt(0) === "+" ? " on" : "") + '" data-act="plus" data-p="' + p + '" aria-label="Toggle plus handicap" title="Plus handicap (better than scratch)">+</button></div>' +
+    var raw = String(S.indexes[p] || "").trim(), v = showIndex(raw), bad = tried && idxBad(p), src = S.idxSrc && S.idxSrc[p], plus = indexIsPlus(raw);
+    return '<div><label class="f">Today\'s handicap index</label><div class="idx"><input type="text" inputmode="decimal" autocomplete="off" autocapitalize="off" spellcheck="false" data-k="indexes" data-i="' + p + '" value="' + esc(v) + '" placeholder="12.4 or +2.3" class="' + (bad ? "bad" : "") + '" aria-label="Today\'s handicap index, player ' + (p + 1) + '">' +
+      '<button type="button" class="plus' + (plus ? " on" : "") + '" data-act="plus" data-p="' + p + '" aria-pressed="' + (plus ? "true" : "false") + '" aria-label="Plus handicap, better than scratch" title="Plus handicap (better than scratch)">Plus</button></div>' +
       (S.idxOver && S.idxOver[p] ? '<div data-tag="' + p + '">' + overTag(p, v) + "</div>" : src && src.value === v ? '<div data-tag="' + p + '">' + tagFor(src.source, src.date) + "</div>" : '<div data-tag="' + p + '"></div>') + "</div>";
   }
   function idxMsg() {
-    return '<div class="msg bad" id="idxmsg"' + (tried && MP.missingIndexes(S).length ? "" : " hidden") + "><b>Enter today's index for each player.</b> Players with an index on the Players tab fill in automatically; others need one typed here. Use a + for plus handicaps (e.g. +1.2).</div>";
+    return '<div class="msg bad" id="idxmsg"' + (tried && MP.missingIndexes(S).length ? "" : " hidden") + "><b>Enter today's index for each player.</b> Players with an index on the Players tab fill in automatically; others need one typed here. For a plus handicap, tap Plus or type +2.3.</div>";
   }
   function allC() { return MP.sortCourses(MP.allCourses(C, LIB)); }
   function findC(id) { return MP.findCourse(C, id, LIB); }
@@ -1597,15 +1609,15 @@ if (typeof module !== "undefined") module.exports = MP;
     } else {
       h += '<div class="card ixbar amber"><div class="grow"><b>No index list loaded</b><div class="sub small">' + (idxBusy ? "Checking…" : "Couldn't load the index list (offline?). Type an index to set one by hand.") + '</div></div></div>';
     }
-    h += '<p class="sub">GHIN indexes update automatically every Monday at 5 AM (Pacific). Type a number in the Index column to set one by hand: it is replaced at the next update unless you pin it (tap its "manual" tag to pin 🔒). They fill in on Setup when you pick a player. Tap ☆ to make a favorite. Anyone who plays a round is saved here automatically.</p>';
+    h += '<p class="sub">GHIN indexes update automatically every Monday at 5 AM (Pacific). Type a number in the Index column to set one by hand: it is replaced at the next update unless you pin it (tap its "manual" tag to pin 🔒). They fill in on Setup when you pick a player. Tap ☆ to make a favorite. Anyone who plays a round is saved here automatically. For a plus handicap (better than scratch), tap <b>Plus</b> under the index, or type +2.3. Phone keypads have no plus key.</p>';
     h += '<h2>Saved players (' + R.length + ")</h2>";
     if (!R.length) h += '<div class="msg">No saved players yet. Add one below, or play a round.</div>';
-    else h += '<div class="card"><div class="prh"><span style="width:48px"></span><span class="grow">Name</span><span style="width:92px;text-align:center">Index</span><span style="width:48px"></span></div>' + MP.sortRoster(R).map(function (x) {
-      var k = MP.normName(x.name), r = MP.resolveIndex(f, MAN, x.name);
+    else h += '<div class="card"><div class="prh"><span style="width:48px"></span><span class="grow">Name</span><span style="width:96px;text-align:center">Index</span><span style="width:48px"></span></div>' + MP.sortRoster(R).map(function (x) {
+      var k = MP.normName(x.name), r = MP.resolveIndex(f, MAN, x.name), plus = !!(r && indexIsPlus(r.index));
       return '<div class="pr"><button class="star' + (x.fav ? " on" : "") + '" data-act="star" data-v="' + esc(k) + '" aria-label="' + (x.fav ? "Remove favorite" : "Make favorite") + '">' + (x.fav ? "★" : "☆") + "</button>" +
         '<input type="text" autocomplete="off" autocapitalize="words" spellcheck="false" data-k="rname" data-v="' + esc(k) + '" value="' + esc(x.name) + '" aria-label="Player name (tap to rename)">' +
-        '<div class="ix"><input type="text" inputmode="decimal" autocomplete="off" autocapitalize="off" spellcheck="false" data-k="pidx" data-v="' + esc(k) + '" value="' + esc(r ? r.index : "") + '" placeholder="–" aria-label="Handicap index for ' + esc(x.name) + '">' +
-        (r ? '<button class="mini" data-act="pplus" data-v="' + esc(k) + '" aria-label="Toggle plus handicap" title="Plus handicap">+/−</button>' : "") + "<div>" + (r ? (r.source === "manual" ? '<button class="tag lockt' + (r.locked ? " on" : "") + '" data-act="plock" data-v="' + esc(k) + '" aria-label="' + (r.locked ? "Unlock" : "Lock") + ' the hand-typed index for ' + esc(x.name) + '" aria-pressed="' + (r.locked ? "true" : "false") + '">' + (r.locked ? "🔒 manual" : "manual · " + esc(MP.fmtDate(r.date, false))) + "</button>" : tagFor(r.source, r.date, true)) : '<span class="tag amber">no index</span>') + "</div></div>" +
+        '<div class="ix"><input type="text" inputmode="decimal" autocomplete="off" autocapitalize="off" spellcheck="false" data-k="pidx" data-v="' + esc(k) + '" value="' + esc(r ? r.index : "") + '" placeholder="12.4" aria-label="Handicap index for ' + esc(x.name) + '">' +
+        '<button type="button" class="plus' + (plus ? " on" : "") + '" data-act="pplus" data-v="' + esc(k) + '" aria-pressed="' + (plus ? "true" : "false") + '" aria-label="Plus handicap for ' + esc(x.name) + '" title="Plus handicap (better than scratch)">Plus</button><div>' + (r ? (r.source === "manual" ? '<button class="tag lockt' + (r.locked ? " on" : "") + '" data-act="plock" data-v="' + esc(k) + '" aria-label="' + (r.locked ? "Unlock" : "Lock") + ' the hand-typed index for ' + esc(x.name) + '" aria-pressed="' + (r.locked ? "true" : "false") + '">' + (r.locked ? "🔒 manual" : "manual · " + esc(MP.fmtDate(r.date, false))) + "</button>" : tagFor(r.source, r.date, true)) : '<span class="tag amber">no index</span>') + "</div></div>" +
         '<button class="del" data-act="delp" data-v="' + esc(k) + '" aria-label="Delete ' + esc(x.name) + '">🗑</button></div>';
     }).join("") + "</div>";
     h += '<h2>Add a player</h2><div class="card">' + txt("Name", "newname", "", "Full name") + '<div style="height:10px"></div><button class="btn pri" data-act="addp">Add player</button></div>';
@@ -1675,7 +1687,8 @@ if (typeof module !== "undefined") module.exports = MP;
     else if (S.game === "stableford") h += "<h2>Players</h2>" + seg("stbN", [[1, "1"], [2, "2"], [3, "3"], [4, "4"], [5, "5"]], S.stbN).replace('class="seg"', 'class="seg" style="margin-bottom:2px"');
     else if (S.game === "vegas") h += '<p class="sub">Four players, two teams: ' + esc(sn([0, 1])) + " vs " + esc(sn([2, 3])) + ".</p>";
     else h += "<h2>Players</h2>" + seg("wolfN", [[3, "3 players"], [4, "4 players"], [5, "5 players"]], S.wolfN);
-    h += '<div class="h2row"><h2>Players</h2><button class="btn dng" data-act="clearplayers" style="width:auto;min-height:38px;padding:0 16px;font-size:15px;margin-bottom:6px">Clear</button></div>' + idxMsg();
+    h += '<div class="h2row"><h2>Players</h2><button class="btn dng" data-act="clearplayers" style="width:auto;min-height:38px;padding:0 16px;font-size:15px;margin-bottom:6px">Clear</button></div>' +
+      '<p class="sub small" style="margin:0 2px 8px">Plus handicap (better than scratch): tap <b>Plus</b>, then type the number. It shows as +2.3. Typing +2.3 works too. Phone keypads have no + or − key.</p>' + idxMsg();
     calc.active.forEach(function (p) {
       h += '<div class="card"><div class="sub" style="margin-bottom:6px">' + esc(playerLabel(p)) + "</div>" + pickSel(p, calc.active) + '<div class="grid2">' +
         txt("Name", "names", S.names[p], "Player " + (p + 1), "", p) + idxField(p) + "</div></div>";
@@ -1690,7 +1703,7 @@ if (typeof module !== "undefined") module.exports = MP;
       '<option value="Custom"' + (S.tee === "Custom" ? " selected" : "") + ">Custom rating / slope</option></select>" +
       '<div class="grid3" style="margin-top:10px">' + txt("Slope", "slope", S.slope, "", "decimal") + txt("Rating", "rating", S.rating, "", "decimal") + txt("Allowance %", "allowance", S.allowance, "", "decimal") + "</div>" +
       sw("Give handicap strokes", "useHcp", S.useHcp) + '<div id="hcp">' + hcpTable(calc) + "</div>" +
-      '<p class="sub small"><b>Index</b> is today’s handicap index. <b>Course hcp</b> is that index after this tee: index × (slope ÷ 113) + (rating − par), rounded to the nearest whole number (.5 rounds up, including a plus index). <b>Playing hcp</b> is the course handicap × the allowance. <b>Strokes</b> are the gap between playing handicaps, not the raw index gap, so indexes one apart can be two strokes, given on the hardest holes first.' + (S.game === "stableford" ? " Stableford instead gives every player strokes from their own full playing handicap; a plus handicap (shown as +N) gives strokes back on the easiest holes." : "") + '</p></div>';
+      '<p class="sub small"><b>Index</b> is today’s handicap index. A plus index (better than scratch) is shown as +2.3. <b>Course hcp</b> is that index after this tee: index × (slope ÷ 113) + (rating − par), rounded to the nearest whole number (.5 rounds up, including a plus index). A plus index can make the course handicap negative. <b>Playing hcp</b> is the course handicap × the allowance. <b>Strokes</b> are the gap between playing handicaps, not the raw index gap, so indexes one apart can be two strokes, given on the hardest holes first.' + (S.game === "stableford" ? " Stableford instead gives every player strokes from their own full playing handicap; a plus handicap (shown as +N) gives strokes back on the easiest holes." : "") + '</p></div>';
     h += "<h2>" + { nassau: "Bets · Nassau (per player)", skins: "Bets · Skins", vegas: "Bets · Las Vegas", wolf: "Bets · Wolf", stableford: "Bets · Stableford" }[S.game] + '</h2><div class="card">' + gameOptions() + "</div>";
     h += "<h2>Add-on bet (optional)</h2><div class=\"card\">" + sw("Birdies (on top of " + { nassau: "Nassau", skins: "Skins", vegas: "Las Vegas", wolf: "Wolf", stableford: "Stableford" }[S.game] + ")", "birdOn", S.birdOn);
     if (S.birdOn) h += '<div class="grid2">' + txt("$ per birdie", "birdAmt", S.birdAmt, "", "decimal") + "<div></div></div>" + sw("Count net birdies instead of gross", "birdNet", S.birdNet) +
@@ -2152,9 +2165,18 @@ if (typeof module !== "undefined") module.exports = MP;
     save(); render();
   }
 
+  var skipPlusUntil = 0;
+  app.addEventListener("pointerdown", function (e) {
+    var plusBtn = e.target.closest('[data-act="plus"],[data-act="pplus"]');
+    if (!plusBtn) return;
+    e.preventDefault(); /* keep the index field focused so its change event does not rebuild the row and swallow this tap; a cancelled pointerdown also drops the later click on a phone, so fire it now */
+    skipPlusUntil = Date.now() + 700;
+    plusBtn.click();
+  });
   app.addEventListener("click", function (e) {
     var el = e.target.closest("[data-act]"); if (!el) return;
     var a = el.getAttribute("data-act"), v = el.getAttribute("data-v"), p = Number(el.getAttribute("data-p"));
+    if (e.isTrusted && (a === "plus" || a === "pplus") && Date.now() < skipPlusUntil) return;
     if (a === "go") go(v);
     else if (a === "game") { S.game = v; S.allowance = v === "nassau" ? (S.format === "singles" ? "100" : "90") : "100"; S.view = 0; save(); render(); }
     else if (a === "stbN") { S.stbN = Number(v); save(); render(); }
@@ -2207,9 +2229,9 @@ if (typeof module !== "undefined") module.exports = MP;
     else if (a === "edit") { S.hole = Number(v); go("hole"); }
     else if (a === "cardView" || a === "skinMode" || a === "skinLeft" || a === "vegasMode" || a === "wolfMode") { S[a] = v; save(); render(); }
     else if (a === "plus") {
-      var pi2 = Number(el.getAttribute("data-p")), cv = String(S.indexes[pi2] || "").trim();
-      S.indexes[pi2] = cv.charAt(0) === "+" ? cv.slice(1) : "+" + cv; S.idxSrc[pi2] = null; var ptv = String(S.indexes[pi2]).trim(); S.idxOver[pi2] = ptv ? { name: MP.normName(S.names[pi2]), value: ptv } : null; applyAuto(); save(); render();
-      var f = app.querySelector('input[data-k="indexes"][data-i="' + pi2 + '"]'); if (f) f.focus();
+      var pi2 = Number(el.getAttribute("data-p")), next = MP.togglePlusIndex(S.indexes[pi2]);
+      S.indexes[pi2] = next; S.idxSrc[pi2] = null; S.idxOver[pi2] = String(next).trim() ? { name: MP.normName(S.names[pi2]), value: String(next).trim() } : null; applyAuto(); save(); render();
+      var f = app.querySelector('input[data-k="indexes"][data-i="' + pi2 + '"]'); if (f) { f.focus(); try { f.setSelectionRange(f.value.length, f.value.length); } catch (e) {} }
     }
     else if (a === "idxreset") { S.indexes[p] = ""; S.idxSrc[p] = null; S.idxOver[p] = null; applyAuto(); save(); render(); }
     else if (a === "plock") { var lk = R.filter(function (x) { return MP.normName(x.name) === v; })[0]; if (lk) { var cur = MP.resolveIndex(IDX.file, MAN, lk.name); MAN = MP.setManualLock(MAN, lk.name, !(cur && cur.locked)); MP.saveManual(localStorage, MAN); render(); } }
@@ -2229,8 +2251,16 @@ if (typeof module !== "undefined") module.exports = MP;
     else if (a === "sharereq") { var rq2 = REQS.filter(function (x) { return x.id === v; })[0]; if (rq2 && navigator.share) navigator.share({ text: MP.requestText(rq2) }).catch(function () {}); }
     else if (a === "delreq") { REQS = MP.removeRequest(REQS, v); MP.saveRequests(localStorage, REQS); render(); }
     else if (a === "pplus") {
-      var pe0 = MP.resolveIndex(IDX.file, MAN, (R.filter(function (x) { return MP.normName(x.name) === v; })[0] || {}).name), pn0 = (R.filter(function (x) { return MP.normName(x.name) === v; })[0] || {}).name;
-      if (pe0 && pn0) { var nv = pe0.index.charAt(0) === "+" ? pe0.index.slice(1) : "+" + pe0.index, rs0 = MP.setManualIndex(MAN, pn0, nv, today()); if (rs0.ok) { MAN = rs0.manual; MP.saveManual(localStorage, MAN); applyAuto(); render(); } }
+      var row = el.closest(".pr"), inp = row ? row.querySelector('input[data-k="pidx"]') : null, who = R.filter(function (x) { return MP.normName(x.name) === v; })[0];
+      if (!who) return;
+      var nextP = MP.togglePlusIndex(inp ? inp.value : "");
+      if (nextP === "" || nextP === "+") {
+        if (inp) { inp.value = nextP; inp.focus(); try { inp.setSelectionRange(inp.value.length, inp.value.length); } catch (e) {} }
+        el.classList.toggle("on", nextP === "+"); el.setAttribute("aria-pressed", nextP === "+" ? "true" : "false");
+        return;
+      }
+      var rs0 = MP.setManualIndex(MAN, who.name, nextP, today());
+      if (!rs0.ok) window.alert(rs0.error); else { MAN = rs0.manual; MP.saveManual(localStorage, MAN); applyAuto(); render(); }
     }
     else if (a === "star") { var e1 = R.filter(function (x) { return MP.normName(x.name) === v; })[0]; if (e1) { e1.fav = !e1.fav; saveR(); render(); } }
     else if (a === "delp") {
@@ -2262,8 +2292,10 @@ if (typeof module !== "undefined") module.exports = MP;
     if (k === "slope" || k === "rating") { S.tee = "Custom"; S.teePar = ""; var sel = app.querySelector('select[data-k="tee"]'); if (sel) sel.value = "Custom"; }
     save();
     if (k === "indexes") {
+      var cleanedIx = MP.cleanIndex(el.value);
+      if (cleanedIx && el.value.trim().charAt(0) === "-" && cleanedIx.charAt(0) === "+") { el.value = cleanedIx; try { el.setSelectionRange(cleanedIx.length, cleanedIx.length); } catch (e) {} S[k][Number(i)] = el.value; }
       if (S.idxSrc) S.idxSrc[Number(i)] = null; if (!S.idxOver) S.idxOver = [null, null, null, null, null]; S.idxOver[Number(i)] = el.value.trim() === "" ? null : { name: MP.normName(S.names[Number(i)]), value: el.value.trim() }; var tg = app.querySelector('[data-tag="' + i + '"]'); if (tg) tg.innerHTML = overTag(Number(i), el.value); save();
-      var pl = el.parentNode.querySelector(".plus"); if (pl) pl.classList.toggle("on", el.value.trim().charAt(0) === "+");
+      var pl = el.parentNode.querySelector(".plus"); if (pl) { var on = indexIsPlus(el.value); pl.classList.toggle("on", on); pl.setAttribute("aria-pressed", on ? "true" : "false"); }
       if (tried) {
         el.classList.toggle("bad", idxBad(Number(i)));
         var left = MP.missingIndexes(S).length; ["idxmsg", "idxmsg2"].forEach(function (id) { var m = document.getElementById(id); if (m) m.hidden = !left; });
@@ -2296,6 +2328,7 @@ if (typeof module !== "undefined") module.exports = MP;
     if (k === "newname" || k === "ghinwho") { if (k === "ghinwho") ghinPick = Number(el.value); return; }
     if (k === "pidx") {
       var pe3 = R.filter(function (x) { return MP.normName(x.name) === el.getAttribute("data-v"); })[0]; if (!pe3) return;
+      var typedIx = String(el.value || "").trim(); if (typedIx === "+" || typedIx === "-") return;
       var rs = MP.setManualIndex(MAN, pe3.name, el.value, today());
       if (!rs.ok) window.alert(rs.error); else { MAN = rs.manual; MP.saveManual(localStorage, MAN); applyAuto(); }
       render(); return;

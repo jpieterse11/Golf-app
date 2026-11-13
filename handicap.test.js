@@ -379,5 +379,58 @@ test("GHIN post message is gross scores only, with the Nov 7 Annandale 41/41/82 
   assert.strictEqual(gap.total, 77);
 });
 
+test("a plus index +2.3 is shown with a plus, stored as negative, and gives strokes back on the easiest holes", function () {
+  assert.strictEqual(MP.parseIndex("+2.3"), -2.3);
+  assert.strictEqual(MP.parseIndex("-2.3"), -2.3);
+  assert.strictEqual(MP.parseIndex(-2.3), -2.3);
+  assert.strictEqual(MP.cleanIndex("+2.3"), "+2.3");
+  assert.strictEqual(MP.cleanIndex("-2.3"), "+2.3");
+  assert.strictEqual(MP.cleanIndex(-2.3), "+2.3");
+  assert.strictEqual(MP.cleanIndex(4.2), "4.2");
+  assert.strictEqual(MP.validIndex("+2.3"), true);
+  assert.strictEqual(MP.validIndex("-2.3"), true);
+  assert.strictEqual(MP.validIndex("2.3"), true);
+  assert.strictEqual(MP.validIndex("+"), false);
+  assert.strictEqual(MP.togglePlusIndex("2.3"), "+2.3");
+  assert.strictEqual(MP.togglePlusIndex("+2.3"), "2.3");
+  assert.strictEqual(MP.togglePlusIndex("-2.3"), "2.3");
+  assert.strictEqual(MP.togglePlusIndex(""), "+");
+  assert.strictEqual(MP.togglePlusIndex("+"), "");
+  var manual = MP.setManualIndex({}, "Ada Plus", "-2.3", "2026-11-13");
+  assert.strictEqual(manual.ok, true);
+  assert.strictEqual(manual.manual["ada plus"].index, "+2.3");
+  assert.strictEqual(MP.setManualIndex({}, "Ada Plus", "+2.3", "2026-11-13").manual["ada plus"].index, "+2.3");
+  var feed = MP.parseIndexFile({ asOf: "2026-11-13", source: "GHIN", players: { "Ada Plus": -2.3, "Bob": 4.2 } });
+  assert.strictEqual(feed.ok, true);
+  assert.strictEqual(feed.players["ada plus"].index, "+2.3");
+  assert.strictEqual(feed.players.bob.index, "4.2");
+
+  var s = round({ slope: 113, rating: 72, teePar: 72, indexes: ["+2.3", "10", "", "", ""], game: "stableford" });
+  var c = MP.compute(s);
+  assert.strictEqual(c.courseH[0], -2);
+  assert.strictEqual(c.courseH[0], expectCourse(-2.3, 113, 72, 72));
+  assert.strictEqual(c.playingH[0], -2);
+  assert.strictEqual(c.diff[0], -2);
+  assert.strictEqual(strokeSum(c.strokes[0]), -2);
+  same(holesWith(c.strokes[0], s.si, -1), [17, 18]);
+  for (var si = 1; si <= 16; si++) assert.strictEqual(MP.ownStrokes(si, -2) + 0, 0);
+  assert.strictEqual(MP.ownStrokes(17, -2), -1);
+  assert.strictEqual(MP.ownStrokes(18, -2), -1);
+
+  var steep = round({ slope: 125, rating: 71.2, teePar: 72, indexes: ["+1.6", "8", "", "", ""], game: "stableford" });
+  var sc = MP.compute(steep);
+  assert.strictEqual(sc.courseH[0], -3);
+  assert.strictEqual(sc.courseH[0], expectCourse(-1.6, 125, 71.2, 72));
+  same(holesWith(sc.strokes[0], steep.si, -1), [16, 17, 18]);
+
+  var match = round({ slope: 113, rating: 72, teePar: 72, indexes: ["+2.3", "10", "", "", ""], game: "nassau" });
+  var mc = MP.compute(match);
+  same(mc.courseH.slice(0, 2), [-2, 10]);
+  same(mc.playingH.slice(0, 2), [-2, 10]);
+  same(mc.diff.slice(0, 2), [0, 12]);
+  assert.strictEqual(strokeSum(mc.strokes[0]), 0);
+  same(holesWith(mc.strokes[1], match.si, 1), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+});
+
 if (failed) { console.error("\n" + failed + " failed"); process.exit(1); }
 console.log("\nall handicap tests passed");
