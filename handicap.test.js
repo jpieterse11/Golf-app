@@ -432,5 +432,87 @@ test("a plus index +2.3 is shown with a plus, stored as negative, and gives stro
   same(holesWith(mc.strokes[1], match.si, 1), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
 });
 
+test("Nine Points pays 5-3-1 for every tie, waits on a blank hole, and settles a full round", function () {
+  same(MP.nineSplit([4, 5, 6]), [5, 3, 1]);
+  same(MP.nineSplit([4, 4, 6]), [4, 4, 1]);
+  same(MP.nineSplit([4, 5, 5]), [5, 2, 2]);
+  same(MP.nineSplit([4, 4, 4]), [3, 3, 3]);
+  same(MP.nineSplit([-1, 0, 1]), [5, 3, 1]);
+  same(MP.nineSplit([-1, -1, 2]), [4, 4, 1]);
+
+  function scored(rows) {
+    var scores = MP.emptyScores();
+    rows.forEach(function (row, p) { row.forEach(function (v, h) { if (v !== "" && v != null) scores[p][h] = String(v); }); });
+    return scores;
+  }
+  var shifted = round({ slope: 113, rating: 72, teePar: 72, indexes: ["0", "10", "0", "", ""], game: "nine", allowance: "100", scores: scored([[5], [5], [5]]) });
+  var shiftCalc = MP.compute(shifted);
+  assert.strictEqual(shiftCalc.strokes[1][0], 1, "the 10 index gets the stroke on the hardest hole");
+  assert.strictEqual(shiftCalc.strokes[0][0], 0);
+  var shiftPts = MP.ninePoints(shifted, shiftCalc);
+  same([shiftPts.pts[0][0], shiftPts.pts[1][0], shiftPts.pts[2][0]], [2, 5, 2]);
+  same(shiftPts.total.slice(0, 3), [2, 5, 2]);
+
+  var even = round({ slope: 113, rating: 72, teePar: 72, indexes: ["0", "0", "0", "", ""], game: "nine", scores: scored([[5], [5], [5]]) });
+  var evenPts = MP.ninePoints(even, MP.compute(even));
+  same([evenPts.pts[0][0], evenPts.pts[1][0], evenPts.pts[2][0]], [3, 3, 3]);
+
+  var waiting = round({ slope: 113, rating: 72, teePar: 72, indexes: ["0", "0", "0", "", ""], game: "nine", scores: scored([[4, 4], [5, 5], [6]]) });
+  var waitPts = MP.ninePoints(waiting, MP.compute(waiting));
+  same([waitPts.pts[0][0], waitPts.pts[1][0], waitPts.pts[2][0]], [5, 3, 1]);
+  assert.strictEqual(waitPts.pts[0][1], null);
+  assert.strictEqual(waitPts.pts[2][1], null);
+  same(waitPts.total.slice(0, 3), [5, 3, 1]);
+  assert.ok(waitPts.pending.indexOf(1) >= 0);
+  same(waitPts.partial, [1]);
+  same(waitPts.net.slice(0, 3), [6, 0, -6]);
+
+  var rows = [[], [], []];
+  function put(h, a, b, c) { rows[0][h] = a; rows[1][h] = b; rows[2][h] = c; }
+  for (var h = 0; h < 6; h++) put(h, 4, 5, 6);
+  for (h = 6; h < 9; h++) put(h, 4, 4, 5);
+  for (h = 9; h < 12; h++) put(h, 4, 5, 5);
+  for (h = 12; h < 15; h++) put(h, 4, 4, 4);
+  put(15, 4, 5, "");
+  put(16, 3, 4, 5);
+  put(17, 3, 4, 5);
+  var full = round({ slope: 113, rating: 72, teePar: 72, indexes: ["0", "0", "0", "", ""], game: "nine", allowance: "100", scores: scored(rows) });
+  var fullPts = MP.ninePoints(full, MP.compute(full));
+  same(fullPts.total.slice(0, 3), [76, 51, 26]);
+  same(fullPts.front.slice(0, 3), [42, 30, 9]);
+  same(fullPts.back.slice(0, 3), [34, 21, 17]);
+  assert.strictEqual(fullPts.pts[0][15], null);
+  assert.strictEqual(fullPts.played, 17);
+  same(fullPts.net.slice(0, 3), [75, 0, -75]);
+  assert.strictEqual(fullPts.net[0] + fullPts.net[1] + fullPts.net[2], 0);
+  full.nineAmt = "2";
+  var doubled = MP.ninePoints(full, MP.compute(full));
+  same(doubled.net.slice(0, 3), [150, 0, -150]);
+
+  var addon = round({ slope: 113, rating: 72, teePar: 72, indexes: ["0", "0", "0", "", ""], game: "nine", scores: scored([[3], [4], [5]]) });
+  addon.birdOn = true; addon.birdAmt = "5"; addon.snakeOn = true; addon.snakeAmt = "1"; addon.putts[0] = "0";
+  var all = MP.settleAll(addon, MP.compute(addon));
+  same(all.nineNet.slice(0, 3), [6, 0, -6]);
+  same(all.birdNet.slice(0, 3), [10, -5, -5]);
+  same(all.snakeNet.slice(0, 3), [-2, 1, 1]);
+  same(all.total.slice(0, 3), [14, -4, -10]);
+  assert.strictEqual(all.total[0] + all.total[1] + all.total[2], 0);
+
+  var legacy = MP.defaultState();
+  delete legacy.nineAmt;
+  delete legacy.game;
+  MP.normalizeGame(legacy);
+  assert.strictEqual(legacy.game, "nassau");
+  assert.strictEqual(legacy.nineAmt, "1");
+  same(MP.activePlayers(legacy), [0, 1, 2, 3]);
+  var kept = MP.defaultState();
+  kept.game = "nine";
+  kept.nineAmt = "3";
+  MP.normalizeGame(kept);
+  assert.strictEqual(kept.game, "nine");
+  assert.strictEqual(kept.nineAmt, "3");
+  same(MP.activePlayers(kept), [0, 1, 2]);
+});
+
 if (failed) { console.error("\n" + failed + " failed"); process.exit(1); }
 console.log("\nall handicap tests passed");

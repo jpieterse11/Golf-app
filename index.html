@@ -44,10 +44,13 @@ input:focus,select:focus{outline:2px solid var(--green);outline-offset:0}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
 .btn{min-height:50px;padding:0 16px;font:inherit;font-weight:600;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--text);width:100%}
+.btn:disabled{opacity:.45}
 .btn.pri{background:var(--green);color:var(--greenfg);border-color:var(--green)}
 .btn.dng{color:var(--red);border-color:var(--red)}
 .btn:active{opacity:.7}
 .seg{display:flex;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--card)}
+.seg.games{flex-wrap:wrap}
+.seg.games button{flex:1 1 31%;min-width:31%}
 .seg button{flex:1;min-height:48px;font:inherit;font-size:15px;font-weight:600;border:0;background:transparent;color:var(--text);padding:4px 6px;border-right:1px solid var(--line)}
 .seg button:last-child{border-right:0}
 .seg button.on{background:var(--green);color:var(--greenfg)}
@@ -111,7 +114,7 @@ input.bad{border-color:var(--red);border-width:2px;background:var(--warn)}
 #toast{position:fixed;left:10px;right:10px;top:calc(8px + env(safe-area-inset-top));z-index:30;pointer-events:none;display:flex;flex-direction:column;gap:6px;max-width:500px;margin:0 auto}
 .tt{pointer-events:none;background:var(--text);color:var(--bg);border-radius:12px;padding:10px 12px;font-size:15px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.35);border-left:6px solid var(--green);animation:tin .18s ease-out}
 .tag.lockt{background:none;border:1px solid var(--line);border-radius:8px;padding:3px 6px;font-family:inherit;color:var(--ok);cursor:pointer}.tag.lockt.on{background:var(--soft);color:var(--text)}
-.tt.vegas{border-left-color:#14b8a6}.tt.wolf{border-left-color:#8b5e34}
+.tt.vegas{border-left-color:#14b8a6}.tt.wolf{border-left-color:#8b5e34}.tt.nine{border-left-color:#0284c7}
 .tt.closeout{border-left-color:#d99a00}.tt.press{border-left-color:#e0652d}.tt.skin{border-left-color:#3b82f6}.tt.birdie{border-left-color:#a855f7}
 @keyframes tin{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
 .undo{min-height:44px;font-size:15px;margin-bottom:10px}
@@ -201,7 +204,7 @@ var MP = (function () {
   var HOLES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
   var WHEEL_PAIRS = [[2, 3], [2, 4], [3, 4]];
 
-  var GAMES = ["nassau", "skins", "vegas", "wolf", "stableford"];
+  var GAMES = ["nassau", "skins", "vegas", "wolf", "stableford", "nine"];
   function emptyWolf() { return HOLES.map(function () { return ""; }); } /* per-hole wolf choice: "" none, "L" lone, "B" blind, "0".."4" partner (player index) */
   function emptyHoleStrs() { return HOLES.map(function () { return ""; }); } /* Snake: putts[h] = digits of the players who 3-putted on hole h ("02" = slots 1 and 3); snakeLast[h] = slot who 3-putted last when several did */
   function emptyScores() { return [0, 1, 2, 3, 4].map(function () { return HOLES.map(function () { return ""; }); }); }
@@ -220,10 +223,11 @@ var MP = (function () {
       allowance: "90",
       front: "10", back: "10", overall: "10",
       autoPress: true,
-      game: "nassau", /* the ONE main game: nassau | skins | vegas | wolf | stableford (birdies and snake are separate add-ons) */
+      game: "nassau", /* the ONE main game: nassau | skins | vegas | wolf | stableford | nine (birdies and snake are separate add-ons) */
       skinN: 4, skinAmt: "5", skinMode: "net", skinCarry: true, skinLeft: "dies",
       vegasAmt: "1", vegasMode: "net", vegasFlip: false,
       stbN: 4, stbAmt: "1", /* Stableford: 1-5 players, $ per point */
+      nineAmt: "1", /* Nine Points (5-3-1): exactly 3 players, $ per point */
       wolfN: 4, wolfAmt: "2", wolfMode: "net", wolfLone: "2", wolfBlindOn: false, wolfBlind: "3", wolfOrder: [0, 1, 2, 3, 4], wolf: emptyWolf(),
       birdOn: false, birdAmt: "5", birdNet: false,
       snakeOn: false, snakeAmt: "1", putts: emptyHoleStrs(), snakeLast: emptyHoleStrs(),
@@ -309,6 +313,7 @@ var MP = (function () {
       if (g === "skins") { n = Math.max(2, Math.min(5, Math.round(Number(x.skinN)) || 4)); return [0, 1, 2, 3, 4].slice(0, n); }
       if (g === "stableford") { n = Math.round(Number(x.stbN)); n = n >= 1 && n <= 5 ? n : 4; return [0, 1, 2, 3, 4].slice(0, n); }
       if (g === "vegas") return [0, 1, 2, 3];
+      if (g === "nine") return [0, 1, 2]; /* Nine Points is exactly three players */
       if (g === "wolf") return [0, 1, 2, 3, 4].slice(0, wolfCount(x.wolfN));
       return activePlayers(x.format);
     }
@@ -322,6 +327,7 @@ var MP = (function () {
     var sn = Math.round(Number(state.skinN)); state.skinN = sn >= 2 && sn <= 5 ? sn : 4;
     var bn = Math.round(Number(state.stbN)); state.stbN = bn >= 1 && bn <= 5 ? bn : 4;
     if (!(Number(state.stbAmt) >= 0) || String(state.stbAmt == null ? "" : state.stbAmt).trim() === "") state.stbAmt = d.stbAmt; /* older saves have no Stableford fields */
+    if (!(Number(state.nineAmt) >= 0) || String(state.nineAmt == null ? "" : state.nineAmt).trim() === "") state.nineAmt = d.nineAmt; /* older saves have no Nine Points stake */
     state.wolfN = wolfCount(state.wolfN);
     ["skinMode", "vegasMode", "wolfMode"].forEach(function (k) { if (state[k] !== "net" && state[k] !== "gross") state[k] = d[k]; });
     var o = state.wolfOrder, okOrder = Array.isArray(o) && o.length === 5 && [0, 1, 2, 3, 4].every(function (i) { return o.indexOf(i) >= 0; });
@@ -685,6 +691,41 @@ var MP = (function () {
     return res;
   }
 
+  /* Nine Points (5-3-1), exactly 3 players. Points from NET score off the low player (calc.strokes is already that gap).
+     Distinct nets: 5 / 3 / 1. Two tie for low: 4 / 4 / 1. Two tie for high: 5 / 2 / 2. All tie: 3 / 3 / 3.
+     A hole with any blank score is pending and awards nothing. Each pair settles (own points − other points) × $ per point. */
+  function nineSplit(nets) {
+    var vals = nets.slice(), seen = {}, keys = [], i;
+    for (i = 0; i < vals.length; i++) { seen[vals[i]] = (seen[vals[i]] || 0) + 1; if (keys.indexOf(vals[i]) < 0) keys.push(vals[i]); }
+    keys.sort(function (a, b) { return a - b; });
+    if (keys.length <= 1) return vals.map(function () { return 3; });
+    if (keys.length >= 3) return vals.map(function (v) { return v === keys[0] ? 5 : v === keys[1] ? 3 : 1; });
+    if (seen[keys[0]] >= 2) return vals.map(function (v) { return v === keys[0] ? 4 : 1; });
+    return vals.map(function (v) { return v === keys[0] ? 5 : 2; });
+  }
+  function ninePoints(state, calc) {
+    var active = calc.active, amt = Number(state.nineAmt) || 0;
+    var res = { amount: amt, pts: [0, 1, 2, 3, 4].map(function () { return HOLES.map(function () { return null; }); }), front: zero5(), back: zero5(), total: zero5(), net: zero5(), pairs: [], pending: [], partial: [], played: 0 };
+    HOLES.forEach(function (h) {
+      var any = active.some(function (p) { var s = state.scores[p][h]; return String(s).trim() !== "" && !isNaN(Number(s)); });
+      if (active.length !== 3 || !holeComplete(state, active, h)) { res.pending.push(h); if (any) res.partial.push(h); return; }
+      var nets = active.map(function (p) { return Number(state.scores[p][h]) - calc.strokes[p][h]; });
+      var split = nineSplit(nets);
+      active.forEach(function (p, i) {
+        res.pts[p][h] = split[i]; res.total[p] += split[i];
+        if (h < 9) res.front[p] += split[i]; else res.back[p] += split[i];
+      });
+      res.played++;
+    });
+    for (var i = 0; i < active.length; i++) for (var j = i + 1; j < active.length; j++) {
+      var a = active[i], b = active[j], d = res.total[a] - res.total[b];
+      res.pairs.push({ a: a, b: b, diff: d, money: d * amt });
+      res.net[a] += d * amt; res.net[b] -= d * amt;
+    }
+    res.net = res.net.map(cents);
+    return res;
+  }
+
   /* ---- Snake add-on (three-putt). A manual 3-putt mark per player per hole. EVERY three-putt is a separate snake (two players on one hole = 2 snakes).
      The snake is held by whoever three-putted last. When several players three-putted on one hole the app only knows putt counts, not order, so
      snakeLast[h] records who was last; until a pick is made the LAST PLAYER IN PLAYER ORDER among them is used (rec.defaulted = true).
@@ -803,12 +844,12 @@ var MP = (function () {
   /* The selected main game plus the Birdies and Snake add-ons, summed. Only the chosen game is calculated; the others come back null / zero. */
   function settleAll(state, calc) {
     var g = GAMES.indexOf(state.game) >= 0 ? state.game : "nassau";
-    var nas = g === "nassau" ? settle(state, calc) : null, sk = g === "skins" ? skins(state, calc) : null, vg = g === "vegas" ? vegas(state, calc) : null, wf = g === "wolf" ? wolfGame(state, calc) : null, sb = g === "stableford" ? stableford(state, calc) : null;
+    var nas = g === "nassau" ? settle(state, calc) : null, sk = g === "skins" ? skins(state, calc) : null, vg = g === "vegas" ? vegas(state, calc) : null, wf = g === "wolf" ? wolfGame(state, calc) : null, sb = g === "stableford" ? stableford(state, calc) : null, np = g === "nine" ? ninePoints(state, calc) : null;
     var bd = birdies(state, calc), z = zero5();
-    var main = g === "nassau" ? nas.net : g === "skins" ? sk.net : g === "vegas" ? vg.net : g === "stableford" ? sb.net : wf.net;
+    var main = g === "nassau" ? nas.net : g === "skins" ? sk.net : g === "vegas" ? vg.net : g === "stableford" ? sb.net : g === "nine" ? np.net : wf.net;
     var bdN = state.birdOn ? bd.net : z, snk = state.snakeOn ? snake(state, calc) : null, snN = snk ? snk.net : z;
-    return { game: g, nassau: nas, skins: sk, vegas: vg, wolf: wf, stableford: sb, birdies: bd, snake: snk, mainNet: main, birdNet: bdN, snakeNet: snN,
-      nassauNet: g === "nassau" ? main : z, skinNet: g === "skins" ? main : z, vegasNet: g === "vegas" ? main : z, wolfNet: g === "wolf" ? main : z, stbNet: g === "stableford" ? main : z,
+    return { game: g, nassau: nas, skins: sk, vegas: vg, wolf: wf, stableford: sb, nine: np, birdies: bd, snake: snk, mainNet: main, birdNet: bdN, snakeNet: snN,
+      nassauNet: g === "nassau" ? main : z, skinNet: g === "skins" ? main : z, vegasNet: g === "vegas" ? main : z, wolfNet: g === "wolf" ? main : z, stbNet: g === "stableford" ? main : z, nineNet: g === "nine" ? main : z,
       pending: nas ? nas.pending : z,
       total: [0, 1, 2, 3, 4].map(function (p) { return cents(main[p] + bdN[p] + snN[p]); }) };
   }
@@ -870,6 +911,13 @@ var MP = (function () {
           var x = tb.pts[p][h]; if (x === null || ta.pts[p][h] === x) return;
           ev.push({ type: "stableford", hole: h, text: "Stableford #" + (h + 1) + ": " + firstName(nextS, p) + " " + x + " pt" + (x === 1 ? "" : "s") + " (total " + tb.total[p] + ")" });
         });
+      });
+    }
+    if (nextS.game === "nine") {
+      var na = ninePoints(prevS, ca), nb = ninePoints(nextS, cb);
+      HOLES.forEach(function (h) {
+        if (nb.pts[0][h] === null || (na.pts[0][h] === nb.pts[0][h] && na.pts[1][h] === nb.pts[1][h] && na.pts[2][h] === nb.pts[2][h])) return;
+        ev.push({ type: "nine", hole: h, text: "Nine Points #" + (h + 1) + ": " + cb.active.map(function (p) { return firstName(nextS, p) + " " + nb.pts[p][h]; }).join(", ") });
       });
     }
     if (nextS.game === "vegas") {
@@ -1326,7 +1374,7 @@ var MP = (function () {
     COURSE_FORMAT: COURSE_FORMAT, COURSES_KEY: COURSES_KEY, ANNANDALE: ANNANDALE, checkCourse: checkCourse, exportCourse: exportCourse, importCourse: importCourse, snapshotOf: snapshotOf,
     newCourseId: newCourseId, loadCourses: loadCourses, saveCourses: saveCourses, allCourses: allCourses, sortCourses: sortCourses, findCourse: findCourse, uniqueCourseName: uniqueCourseName,
     applyTee: applyTee, applyCourse: applyCourse, courseChanged: courseChanged, refreshBuiltinAnnandale: refreshBuiltinAnnandale,
-    skins: skins, stableford: stableford, stablefordPoints: stablefordPoints, ownStrokes: ownStrokes, birdies: birdies, vegas: vegas, vegasNumber: vegasNumber, wolfGame: wolfGame, snake: snake, roundHasSnake: roundHasSnake, togglePutt: togglePutt, setSnakeLast: setSnakeLast, emptyHoleStrs: emptyHoleStrs, undoPushSnake: undoPushSnake, wolfOf: wolfOf, wolfCount: wolfCount, wolfOrderOf: wolfOrderOf, emptyWolf: emptyWolf, normalizeGame: normalizeGame, GAMES: GAMES, firstName: firstName, teamLabel: teamLabel,
+    skins: skins, stableford: stableford, stablefordPoints: stablefordPoints, nineSplit: nineSplit, ninePoints: ninePoints, ownStrokes: ownStrokes, birdies: birdies, vegas: vegas, vegasNumber: vegasNumber, wolfGame: wolfGame, snake: snake, roundHasSnake: roundHasSnake, togglePutt: togglePutt, setSnakeLast: setSnakeLast, emptyHoleStrs: emptyHoleStrs, undoPushSnake: undoPushSnake, wolfOf: wolfOf, wolfCount: wolfCount, wolfOrderOf: wolfOrderOf, emptyWolf: emptyWolf, normalizeGame: normalizeGame, GAMES: GAMES, firstName: firstName, teamLabel: teamLabel,
     settleAll: settleAll, undoPush: undoPush, undoPushWolf: undoPushWolf, undoPop: undoPop, diffEvents: diffEvents, holeComplete: holeComplete,
     mergeFeedPlayers: mergeFeedPlayers, loadDismissed: loadDismissed, addDismissed: addDismissed, DISMISS_KEY: DISMISS_KEY, ROSTER_KEY: ROSTER_KEY, FAVORITES: FAVORITES, normName: normName, cleanName: cleanName, validIndex: validIndex, missingIndexes: missingIndexes, seedRoster: seedRoster, parseRoster: parseRoster,
     loadRoster: loadRoster, saveRoster: saveRoster, sortRoster: sortRoster, rosterFind: rosterFind, roundHasScores: roundHasScores, isSampleRound: isSampleRound, rosterAutoSave: rosterAutoSave, newRoundReset: newRoundReset,
@@ -1628,6 +1676,7 @@ if (typeof module !== "undefined") module.exports = MP;
     skins: "Everyone plays for themselves. The lowest score alone on a hole wins a skin.",
     vegas: "Two teams of two. Each hole a team's two scores make one number (4 and 5 = 45); the lower number wins the difference in points.",
     stableford: "Points per hole from your net score, played off your own full handicap: net birdie 3, par 2, bogey 1, double bogey or worse 0 (eagle 4). Highest total wins; every pair settles the points difference.",
+    nine: "Also called 5-3-1. Exactly 3 players. Each hole the low net gets 5, the middle 3 and the high 1 (ties split 4/4/1, 5/2/2 or 3/3/3). Every pair settles the points difference.",
     wolf: "The wolf rotates each hole and picks a partner after seeing tee shots, or goes Lone Wolf for bigger stakes. Play it with 3, 4 or 5 players."
   };
   function wolfOrderUi() {
@@ -1658,6 +1707,9 @@ if (typeof module !== "undefined") module.exports = MP;
     } else if (S.game === "stableford") {
       o += '<div class="grid2">' + txt("$ per point", "stbAmt", S.stbAmt, "", "decimal") + "<div></div></div>" +
         '<p class="sub small">Default is $1 per point; change it any time. Each hole: net double eagle or better 5, eagle 4, birdie 3, par 2, bogey 1, double bogey or worse 0. Net uses each player\'s own full playing handicap (not strokes off the low man); a plus handicap gives strokes back on the easiest holes. Every pair of players settles the difference in total points × the $ per point. Only holes where everyone has a score are paid.</p>';
+    } else if (S.game === "nine") {
+      o += '<div class="grid2">' + txt("$ per point", "nineAmt", S.nineAmt, "", "decimal") + "<div></div></div>" +
+        '<p class="sub small">Default is $1 per point. On each hole the lowest net score gets 5, the middle 3 and the highest 1. Two tie for low: 4, 4 and 1. Two tie for high: 5, 2 and 2. All three tie: 3, 3 and 3. Net uses the same strokes as the other match games: off the low player, after the allowance. A hole with a blank score pays nothing yet. Each pair settles the difference in total points × the $ per point.</p>';
     } else {
       o += '<div class="grid2">' + txt("$ per point", "wolfAmt", S.wolfAmt, "", "decimal") + txt("Lone wolf ×", "wolfLone", S.wolfLone, "", "decimal") + "</div>" +
         '<label class="f" style="margin-top:10px">Scores used</label>' + seg("wolfMode", [["net", "Net (with strokes)"], ["gross", "Gross"]], S.wolfMode) +
@@ -1679,12 +1731,13 @@ if (typeof module !== "undefined") module.exports = MP;
   function viewSetup() {
     var calc = MP.compute(S);
     var h = '<div class="hero' + (BANNER_OK ? " has" : "") + '"><h1>⛳ Golf Scoring Games · Setup</h1></div>';
-    h += "<h2>Game</h2>" + seg("game", [["nassau", "Nassau"], ["skins", "Skins"], ["vegas", "Las Vegas"], ["wolf", "Wolf"], ["stableford", "Stableford"]], S.game) + '<p class="sub small" style="margin:6px 2px 0">' + GAME_BLURB[S.game] + "</p>";
+    h += "<h2>Game</h2>" + seg("game", [["nassau", "Nassau"], ["skins", "Skins"], ["vegas", "Las Vegas"], ["wolf", "Wolf"], ["stableford", "Stableford"], ["nine", "Nine Points"]], S.game).replace('class="seg"', 'class="seg games"') + '<p class="sub small" style="margin:6px 2px 0">' + GAME_BLURB[S.game] + "</p>";
     if (S.game === "nassau") {
       h += '<h2>Format</h2>' + seg("format", [["singles", "One on one"], ["bestball", "2 vs 2"], ["wheel", "5-player wheel"]], S.format);
       if (S.format === "wheel") h += '<p class="sub">' + esc(sn([0, 1])) + " (the wheel) play three best-ball matches: vs " + MP.WHEEL_PAIRS.map(sn).join(", vs ") + ".</p>";
     } else if (S.game === "skins") h += "<h2>Players</h2>" + seg("skinN", [[2, "2 players"], [3, "3"], [4, "4"], [5, "5"]], S.skinN).replace('class="seg"', 'class="seg" style="margin-bottom:2px"');
     else if (S.game === "stableford") h += "<h2>Players</h2>" + seg("stbN", [[1, "1"], [2, "2"], [3, "3"], [4, "4"], [5, "5"]], S.stbN).replace('class="seg"', 'class="seg" style="margin-bottom:2px"');
+    else if (S.game === "nine") h += '<p class="sub">Exactly 3 players: ' + esc(sn([0, 1, 2])) + ".</p>" + (MP.activePlayers(S).length === 3 ? "" : '<div class="msg bad"><b>Nine Points needs exactly 3 players.</b> Starting is turned off until there are 3.</div>');
     else if (S.game === "vegas") h += '<p class="sub">Four players, two teams: ' + esc(sn([0, 1])) + " vs " + esc(sn([2, 3])) + ".</p>";
     else h += "<h2>Players</h2>" + seg("wolfN", [[3, "3 players"], [4, "4 players"], [5, "5 players"]], S.wolfN);
     h += '<div class="h2row"><h2>Players</h2><button class="btn dng" data-act="clearplayers" style="width:auto;min-height:38px;padding:0 16px;font-size:15px;margin-bottom:6px">Clear</button></div>' +
@@ -1704,8 +1757,8 @@ if (typeof module !== "undefined") module.exports = MP;
       '<div class="grid3" style="margin-top:10px">' + txt("Slope", "slope", S.slope, "", "decimal") + txt("Rating", "rating", S.rating, "", "decimal") + txt("Allowance %", "allowance", S.allowance, "", "decimal") + "</div>" +
       sw("Give handicap strokes", "useHcp", S.useHcp) + '<div id="hcp">' + hcpTable(calc) + "</div>" +
       '<p class="sub small"><b>Index</b> is today’s handicap index. A plus index (better than scratch) is shown as +2.3. <b>Course hcp</b> is that index after this tee: index × (slope ÷ 113) + (rating − par), rounded to the nearest whole number (.5 rounds up, including a plus index). A plus index can make the course handicap negative. <b>Playing hcp</b> is the course handicap × the allowance. <b>Strokes</b> are the gap between playing handicaps, not the raw index gap, so indexes one apart can be two strokes, given on the hardest holes first.' + (S.game === "stableford" ? " Stableford instead gives every player strokes from their own full playing handicap; a plus handicap (shown as +N) gives strokes back on the easiest holes." : "") + '</p></div>';
-    h += "<h2>" + { nassau: "Bets · Nassau (per player)", skins: "Bets · Skins", vegas: "Bets · Las Vegas", wolf: "Bets · Wolf", stableford: "Bets · Stableford" }[S.game] + '</h2><div class="card">' + gameOptions() + "</div>";
-    h += "<h2>Add-on bet (optional)</h2><div class=\"card\">" + sw("Birdies (on top of " + { nassau: "Nassau", skins: "Skins", vegas: "Las Vegas", wolf: "Wolf", stableford: "Stableford" }[S.game] + ")", "birdOn", S.birdOn);
+    h += "<h2>" + { nassau: "Bets · Nassau (per player)", skins: "Bets · Skins", vegas: "Bets · Las Vegas", wolf: "Bets · Wolf", stableford: "Bets · Stableford", nine: "Bets · Nine Points" }[S.game] + '</h2><div class="card">' + gameOptions() + "</div>";
+    h += "<h2>Add-on bet (optional)</h2><div class=\"card\">" + sw("Birdies (on top of " + { nassau: "Nassau", skins: "Skins", vegas: "Las Vegas", wolf: "Wolf", stableford: "Stableford", nine: "Nine Points" }[S.game] + ")", "birdOn", S.birdOn);
     if (S.birdOn) h += '<div class="grid2">' + txt("$ per birdie", "birdAmt", S.birdAmt, "", "decimal") + "<div></div></div>" + sw("Count net birdies instead of gross", "birdNet", S.birdNet) +
       '<p class="sub small">Birdie or better pays the maker from every other player. An eagle counts double. Off by default: net birdies.</p>';
     h += sw("Snake (three-putt)", "snakeOn", S.snakeOn);
@@ -1713,7 +1766,8 @@ if (typeof module !== "undefined") module.exports = MP;
       '<p class="sub small">Every three-putt (or worse) is one snake; whoever three-putts last holds it and pays every other player the per-snake amount times the total number of snakes in the round. If several players three-putt on one hole, tap who was last (it defaults to the last in player order). Default is $1 per snake; mark 3-putts on the Hole screen. Works with any game and 2 to 5 players.</p>';
     h += "</div>";
     h += '<p class="sub small" style="text-align:center">Par and hole handicaps come from the course. Edit them under Manage courses.</p>';
-    h += idxMsg().replace('id="idxmsg"', 'id="idxmsg2"') + '<button class="btn pri" data-act="go" data-v="hole">Start scoring ›</button><div style="height:10px"></div>' +
+    var nineOk = S.game !== "nine" || MP.activePlayers(S).length === 3;
+    h += (nineOk ? "" : '<div class="msg bad" id="ninemsg"><b>Nine Points needs exactly 3 players.</b> Starting is turned off until there are 3.</div>') + idxMsg().replace('id="idxmsg"', 'id="idxmsg2"') + '<button class="btn pri" data-act="go" data-v="hole"' + (nineOk ? "" : " disabled") + ">Start scoring ›</button><div style=\"height:10px\"></div>" +
       '<button class="btn dng" data-act="newround">New round (clear scores &amp; players)</button><div style="height:10px"></div>' +
       '<button class="btn" data-act="sample">Load sample wheel round (Nassau)</button>' +
       '<p class="sub small" style="text-align:center">Round scores save automatically on this device. Each index here follows the Players tab (and stays in sync); type over it to use a different index for this round only.</p>';
@@ -1758,9 +1812,15 @@ if (typeof module !== "undefined") module.exports = MP;
     var wg = MP.wolfGame(S, calc), tally = calc.active.filter(function (p) { return wg.units[p]; }).map(function (p) { return esc(lab(p)) + " " + (wg.units[p] > 0 ? "+" : "−") + Math.abs(wg.units[p]); }).join(", ");
     return '<div class="small"><b>Wolf</b> (' + wg.mode + ", " + MP.money(wg.amount) + " per point): " + (tally ? 'points so far: <span class="sub">' + tally + "</span>" : '<span class="sub">no points yet</span>') + "</div>";
   }
+  function nineLine(calc, h) {
+    var np = MP.ninePoints(S, calc);
+    var here = calc.active.map(function (p) { var x = np.pts[p][h]; return esc(lab(p)) + " " + (x === null ? '<span class="sub">–</span>' : "<b>" + x + "</b>"); }).join(" · ");
+    var tot = calc.active.map(function (p) { return esc(lab(p)) + " " + np.total[p]; }).join(", ");
+    return '<div class="small" style="margin-top:4px"><b>Nine Points</b> (' + MP.money(np.amount) + " per point): hole " + (h + 1) + ": " + here + '. <span class="sub">Total: ' + tot + ".</span></div>";
+  }
   function gameCard(calc, h) {
-    var o = '<div class="card"><b>' + { skins: "Skins", vegas: "Las Vegas", wolf: "Wolf", stableford: "Stableford" }[S.game] + " · hole " + (h + 1) + "</b>";
-    o += S.game === "skins" ? skinsLine(calc, h) : S.game === "vegas" ? vegasLine(calc, h) : S.game === "stableford" ? stbLine(calc, h) : '<div style="margin-top:4px">' + wolfLine(calc) + "</div>";
+    var o = '<div class="card"><b>' + { skins: "Skins", vegas: "Las Vegas", wolf: "Wolf", stableford: "Stableford", nine: "Nine Points" }[S.game] + " · hole " + (h + 1) + "</b>";
+    o += S.game === "skins" ? skinsLine(calc, h) : S.game === "vegas" ? vegasLine(calc, h) : S.game === "stableford" ? stbLine(calc, h) : S.game === "nine" ? nineLine(calc, h) : '<div style="margin-top:4px">' + wolfLine(calc) + "</div>";
     return o + "</div>";
   }
   function birdCard(calc, h) {
@@ -1796,11 +1856,11 @@ if (typeof module !== "undefined") module.exports = MP;
     else if (lastU && lastU.k === "snake") o += '<button class="btn undo" data-act="undo">↶ Undo: 3-putt #' + (lastU.h + 1) + "</button>";
     else o += '<button class="btn undo" data-act="undo"' + (lastU ? "" : " disabled") + ">↶ Undo" + (lastU ? ": " + esc(lab(lastU.p)) + " #" + (lastU.h + 1) + " " + (String(S.scores[lastU.p][lastU.h]).trim() === "" ? "–" : esc(S.scores[lastU.p][lastU.h])) + " → " + (String(lastU.prev).trim() === "" ? "–" : esc(lastU.prev)) : " last score") + '</button>';
     if (S.game === "wolf") o += wolfPick(calc, h);
-    var stbH = S.game === "stableford" ? MP.stableford(S, calc) : null;
+    var stbH = S.game === "stableford" ? MP.stableford(S, calc) : null, npH = S.game === "nine" ? MP.ninePoints(S, calc) : null;
     o += '<div class="card">' + calc.active.map(function (p) {
       var st = calc.strokes[p][h], has = filled(p, h), sc = Number(S.scores[p][h]);
       return '<div class="pl"><div class="nm"><b>' + esc(nm(p)) + '</b><span class="dots">' + (st ? dotsOf(st) + "</span> <span class=\"sub small\">" + (st > 0 ? st + " stroke" + (st > 1 ? "s" : "") : "gives back " + -st + " (plus hcp)") : "</span><span class=\"sub small\">no stroke") +
-        (has && st ? " · net " + (sc - st) : "") + (stbH && stbH.pts[p][h] !== null ? " · <b>" + stbH.pts[p][h] + " pt" + (stbH.pts[p][h] === 1 ? "" : "s") + "</b>" : "") + '</span>' +
+        (has && st ? " · net " + (sc - st) : "") + (stbH && stbH.pts[p][h] !== null ? " · <b>" + stbH.pts[p][h] + " pt" + (stbH.pts[p][h] === 1 ? "" : "s") + "</b>" : "") + (npH && npH.pts[p][h] !== null ? " · <b>" + npH.pts[p][h] + " pts</b>" : "") + '</span>' +
         (S.snakeOn ? '<button class="tp' + (S.putts[h].indexOf(String(p)) >= 0 ? " on" : "") + '" data-act="putt" data-p="' + p + '" aria-pressed="' + (S.putts[h].indexOf(String(p)) >= 0) + '">🐍 3-putt' + (S.putts[h].indexOf(String(p)) >= 0 ? " ✓" : "") + "</button>" : "") + '</div>' +
         '<button class="step" data-act="dec" data-p="' + p + '" aria-label="minus">−</button>' +
         '<input class="scr" type="number" inputmode="numeric" data-k="score" data-p="' + p + '" value="' + (has ? esc(S.scores[p][h]) : "") + '" placeholder="–">' +
@@ -1827,7 +1887,7 @@ if (typeof module !== "undefined") module.exports = MP;
   function viewCard() {
     var calc = MP.compute(S), view = S.cardView === "back" || S.cardView === "all" ? S.cardView : "front";
     var sk = S.game === "skins" ? MP.skins(S, calc) : null, bd = S.birdOn ? MP.birdies(S, calc) : null, snk = S.snakeOn ? MP.snake(S, calc) : null;
-    var vg = S.game === "vegas" ? MP.vegas(S, calc) : null, wg = S.game === "wolf" ? MP.wolfGame(S, calc) : null, sbc = S.game === "stableford" ? MP.stableford(S, calc) : null;
+    var vg = S.game === "vegas" ? MP.vegas(S, calc) : null, wg = S.game === "wolf" ? MP.wolfGame(S, calc) : null, sbc = S.game === "stableford" ? MP.stableford(S, calc) : null, npc = S.game === "nine" ? MP.ninePoints(S, calc) : null;
     var cols = [];
     function holes(a, b) { for (var i = a; i <= b; i++) cols.push({ t: "h", h: i }); }
     if (view === "front") { holes(0, 8); cols.push({ t: "s", k: "out" }); }
@@ -1885,6 +1945,15 @@ if (typeof module !== "undefined") module.exports = MP;
         }).join("") + "</tr>";
       });
     });
+    if (npc) {
+      o += '<tr class="mh"><td class="s">9 Pts</td><td colspan="' + n + '">Nine Points · ' + MP.money(npc.amount) + '/pt <span class="sub small">· 5-3-1 on the net score · blank hole pays nothing yet</span></td></tr>';
+      calc.active.forEach(function (p) {
+        o += '<tr><td class="s"><b class="small">' + esc(lab(p)) + " pts</b></td>" + cols.map(function (c) {
+          if (c.t === "s") { var a = range(c.k)[0], b2 = range(c.k)[1], t = 0, any = false; for (var i = a; i <= b2; i++) if (npc.pts[p][i] !== null) { any = true; t += npc.pts[p][i]; } return '<td class="sum sb"><b>' + (any ? t : "") + "</b></td>"; }
+          var x = npc.pts[p][c.h]; return '<td class="sb">' + (x === null ? "" : "<b>" + x + "</b>") + "</td>";
+        }).join("") + "</tr>";
+      });
+    }
     if (sbc) {
       o += '<tr class="mh"><td class="s">Stbl</td><td colspan="' + n + '">Stableford · ' + MP.money(sbc.amount) + '/pt <span class="sub small">· small number = running total</span></td></tr>';
       calc.active.forEach(function (p) {
@@ -1948,7 +2017,7 @@ if (typeof module !== "undefined") module.exports = MP;
       }).join("") + "</tr>";
     }
     o += "</table></div>";
-    o += '<div class="legend">' + (snk ? "🐍 = snake moved to that player (bold initials = last to 3-putt on a hole with several). Every 3-putt is one snake (" + snk.total + " so far). " + (snk.holder === null ? "Nobody has the snake yet" : "Snake holder now: <b>" + esc(lab(snk.holder)) + "</b>") + ". " : "") + '● = stroke on that hole · ○ birdie · ◎ eagle · □ bogey or worse · tap a hole number or a score to edit it · scroll sideways for more' + (bd ? " · ★ eagle (counts double)" : "") + (S.game === "nassau" ? (S.autoPress ? ". Presses show as extra rows (F P1 = front press 1). " : ". ") + "A box like 3&amp;2 means that bet was decided." : S.game === "vegas" ? ". ↺ = number flipped by a birdie." : S.game === "wolf" ? ". ? = the wolf hasn't picked yet (hole not counted)." : S.game === "stableford" ? ". ▽ = stroke given back (plus handicap). Stableford points per hole: net birdie 3, par 2, bogey 1, double bogey or worse 0." : ".") + "</div>";
+    o += '<div class="legend">' + (snk ? "🐍 = snake moved to that player (bold initials = last to 3-putt on a hole with several). Every 3-putt is one snake (" + snk.total + " so far). " + (snk.holder === null ? "Nobody has the snake yet" : "Snake holder now: <b>" + esc(lab(snk.holder)) + "</b>") + ". " : "") + '● = stroke on that hole · ○ birdie · ◎ eagle · □ bogey or worse · tap a hole number or a score to edit it · scroll sideways for more' + (bd ? " · ★ eagle (counts double)" : "") + (S.game === "nassau" ? (S.autoPress ? ". Presses show as extra rows (F P1 = front press 1). " : ". ") + "A box like 3&amp;2 means that bet was decided." : S.game === "vegas" ? ". ↺ = number flipped by a birdie." : S.game === "wolf" ? ". ? = the wolf hasn't picked yet (hole not counted)." : S.game === "stableford" ? ". ▽ = stroke given back (plus handicap). Stableford points per hole: net birdie 3, par 2, bogey 1, double bogey or worse 0." : S.game === "nine" ? ". Nine Points: low net 5, middle 3, high 1. Ties are 4/4/1, 5/2/2 or 3/3/3. A blank score leaves that hole blank." : ".") + "</div>";
     o += '<button class="btn" data-act="go" data-v="results">See results and settle up</button>';
     return o;
   }
@@ -2016,7 +2085,7 @@ if (typeof module !== "undefined") module.exports = MP;
   }
   function viewResults() {
     var calc = MP.compute(S), set = MP.settle(S, calc), g = S.game, played = MP.roundHasScores(S);
-    var all = MP.settleAll(S, calc), GN = { nassau: "Nassau", skins: "Skins", vegas: "Las Vegas", wolf: "Wolf", stableford: "Stableford" }[g];
+    var all = MP.settleAll(S, calc), GN = { nassau: "Nassau", skins: "Skins", vegas: "Las Vegas", wolf: "Wolf", stableford: "Stableford", nine: "Nine Points" }[g];
     var o = "<h1>Results</h1>" + courseLine() + '<div class="sub small" style="margin:-2px 2px 8px">Game: <b>' + GN + "</b>" + (S.game === "nassau" ? (S.autoPress ? " (automatic presses on, at 2 down)" : " (no presses)") : "") + (S.birdOn ? " + Birdies add-on" : "") + (S.snakeOn ? " + Snake add-on" : "") + "</div>";
     if (g === "nassau") {
       var vi = Math.min(Number(S.view) || 0, Math.max(calc.results.length - 1, 0)), shown = calc.results[vi];
@@ -2059,6 +2128,20 @@ if (typeof module !== "undefined") module.exports = MP;
             var hi = r.diff >= 0 ? r.a : r.b, lo = r.diff >= 0 ? r.b : r.a;
             return '<tr><td class="l">' + (r.diff === 0 ? esc(lab(r.a)) + " &amp; " + esc(lab(r.b)) : "<b>" + esc(lab(hi)) + "</b> over " + esc(lab(lo))) + "</td><td>" + (r.diff === 0 ? "tied" : "+" + Math.abs(r.diff)) + '</td><td>' + (r.diff === 0 ? "$0" : MP.money(Math.abs(r.money))) + "</td></tr>";
           }).join("") + '</table><p class="sub small">Each pair settles the difference in total points × ' + MP.money(sb.amount) + ". The player with fewer points pays the other.</p></div>";
+        }
+      } else if (g === "nine") {
+        var np = all.nine, orderN = calc.active.slice().sort(function (a, b) { return np.total[b] - np.total[a] || a - b; });
+        o += "<h2>Nine Points · " + MP.money(np.amount) + " per point</h2>";
+        if (!played) o += '<div class="msg">Enter scores to start.</div>';
+        else {
+          o += '<div class="card"><b>Points</b><table><tr><th class="l">Player</th><th>Front</th><th>Back</th><th>Total</th><th>$</th></tr>' + orderN.map(function (p) {
+            return '<tr><td class="l"><b>' + esc(lab(p)) + "</b></td><td>" + np.front[p] + "</td><td>" + np.back[p] + "</td><td><b>" + np.total[p] + '</b></td><td class="' + cls(all.nineNet[p]) + '">' + MP.signedMoney(all.nineNet[p]) + "</td></tr>";
+          }).join("") + "</table>" +
+            '<p class="sub small">Low net 5, middle 3, high 1. Two tie for low: 4, 4 and 1. Two tie for high: 5, 2 and 2. All three tie: 3 each. Strokes are off the low player.' + (np.partial.length ? " Hole" + (np.partial.length === 1 ? " " : "s ") + np.partial.map(function (x) { return x + 1; }).join(", ") + (np.partial.length === 1 ? " is" : " are") + " missing a score, so " + (np.partial.length === 1 ? "it pays" : "they pay") + " nothing yet." : "") + "</p></div>";
+          if (np.pairs.length) o += '<div class="card"><b>Head to head</b><table><tr><th class="l">Pair</th><th>Points</th><th>$</th></tr>' + np.pairs.map(function (r) {
+            var hi = r.diff >= 0 ? r.a : r.b, lo = r.diff >= 0 ? r.b : r.a;
+            return '<tr><td class="l">' + (r.diff === 0 ? esc(lab(r.a)) + " &amp; " + esc(lab(r.b)) : "<b>" + esc(lab(hi)) + "</b> over " + esc(lab(lo))) + "</td><td>" + (r.diff === 0 ? "tied" : "+" + Math.abs(r.diff)) + "</td><td>" + (r.diff === 0 ? "$0" : MP.money(Math.abs(r.money))) + "</td></tr>";
+          }).join("") + '</table><p class="sub small">Each pair settles the difference in total points × ' + MP.money(np.amount) + ". The player with fewer points pays the other.</p></div>";
         }
       } else if (g === "vegas") {
         var vg = all.vegas, tA = MP.teamLabel(S, [0, 1]), tB = MP.teamLabel(S, [2, 3]);
@@ -2107,6 +2190,9 @@ if (typeof module !== "undefined") module.exports = MP;
   }
   function go(screen) {
     syncRoster();
+    if (screen === "hole" && S.game === "nine" && MP.activePlayers(S).length !== 3) {
+      S.screen = "setup"; save(); render(); window.scrollTo(0, 0); return;
+    }
     if (screen === "hole" && MP.missingIndexes(S).length) {
       tried = true; S.screen = "setup"; save(); render();
       var bad = app.querySelector("input.bad"); if (bad) { bad.scrollIntoView({ block: "center" }); } else window.scrollTo(0, 0);
