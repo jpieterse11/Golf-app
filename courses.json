@@ -1,5 +1,5 @@
 {
-  "updated": "2026-10-31",
+  "updated": "2026-11-18",
   "courses": [
     {
       "id": "annandale",
@@ -258,6 +258,23 @@
         { "name": "Red (Men)", "rating": 68.0, "slope": 123, "par": 72 },
         { "name": "White (Women)", "rating": 77.0, "slope": 140, "par": 72 },
         { "name": "Red (Women)", "rating": 73.7, "slope": 133, "par": 72 }
+      ]
+    },
+    {
+      "id": "trinity-forest",
+      "name": "Trinity Forest Golf Club",
+      "location": "Dallas, TX",
+      "par": [4,5,3,4,5,4,4,3,4,5,3,4,4,4,4,5,3,4],
+      "handicap": [11,7,17,1,3,9,13,15,5,10,14,12,4,16,8,6,18,2],
+      "tees": [
+        { "name": "Plates", "rating": 76.9, "slope": 140, "par": 72, "yards": 7617 },
+        { "name": "Blue", "rating": 74.3, "slope": 136, "par": 72, "yards": 7109 },
+        { "name": "White/Blue", "rating": 73.4, "slope": 133, "par": 72, "yards": 6911 },
+        { "name": "Tournament", "rating": 73.3, "slope": 132, "par": 72, "yards": 6891 },
+        { "name": "White", "rating": 71.7, "slope": 131, "par": 72, "yards": 6576 },
+        { "name": "Red/White", "rating": 70.4, "slope": 125, "par": 72, "yards": 6305 },
+        { "name": "Red", "rating": 68.7, "slope": 117, "par": 72, "yards": 5902 },
+        { "name": "Jr.", "rating": 67.0, "slope": 113, "par": 72, "yards": 5464 }
       ]
     }
   ]

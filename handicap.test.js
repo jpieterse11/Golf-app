@@ -343,6 +343,62 @@ test("Royal Cape uses the BlueGolf card: par 72, one stroke index, six rated tee
   assert.strictEqual(courses.some(function (x) { return x.id === "annandale"; }), true);
 });
 
+test("Trinity Forest is the GHIN card: par 72, eight men's tees, hole yards sum to each total", function () {
+  var raw = courses.filter(function (c) { return c.id === "trinity-forest"; })[0];
+  assert.ok(raw, "course missing");
+  var checked = MP.checkCourse(raw);
+  assert.strictEqual(checked.ok, true, checked.errors && checked.errors.join("; "));
+  var c = checked.course;
+  assert.strictEqual(c.name, "Trinity Forest Golf Club");
+  assert.strictEqual(c.location, "Dallas, TX");
+  same(c.par, [4, 5, 3, 4, 5, 4, 4, 3, 4, 5, 3, 4, 4, 4, 4, 5, 3, 4]);
+  assert.strictEqual(c.par.reduce(function (a, b) { return a + b; }, 0), 72);
+  same(c.si, [11, 7, 17, 1, 3, 9, 13, 15, 5, 10, 14, 12, 4, 16, 8, 6, 18, 2]);
+  var seen = {};
+  c.si.forEach(function (n) { seen[n] = (seen[n] || 0) + 1; });
+  for (var k = 1; k <= 18; k++) assert.strictEqual(seen[k], 1);
+  var holes = {
+    "Plates": [420, 596, 250, 515, 630, 440, 429, 215, 502, 554, 241, 412, 443, 315, 420, 570, 160, 505],
+    "Blue": [400, 537, 205, 458, 592, 422, 390, 200, 485, 539, 205, 385, 424, 287, 420, 555, 138, 467],
+    "White/Blue": [400, 537, 205, 449, 592, 412, 390, 164, 434, 539, 175, 385, 409, 287, 373, 555, 138, 467],
+    "Tournament": [359, 537, 205, 449, 592, 412, 390, 200, 434, 539, 175, 385, 409, 287, 373, 555, 138, 452],
+    "White": [359, 500, 164, 449, 565, 412, 366, 164, 434, 516, 175, 349, 409, 265, 373, 514, 110, 452],
+    "Red/White": [359, 500, 138, 403, 546, 387, 366, 164, 390, 516, 153, 349, 409, 250, 320, 514, 110, 431],
+    "Red": [347, 450, 138, 403, 546, 387, 346, 135, 390, 497, 153, 306, 303, 250, 320, 425, 75, 431],
+    "Jr.": [347, 425, 138, 310, 475, 300, 305, 135, 350, 497, 153, 306, 303, 250, 320, 425, 75, 350]
+  };
+  same(c.tees.map(function (t) { return [t.name, t.rating, t.slope, t.par, t.yards]; }), [
+    ["Plates", 76.9, 140, 72, 7617],
+    ["Blue", 74.3, 136, 72, 7109],
+    ["White/Blue", 73.4, 133, 72, 6911],
+    ["Tournament", 73.3, 132, 72, 6891],
+    ["White", 71.7, 131, 72, 6576],
+    ["Red/White", 70.4, 125, 72, 6305],
+    ["Red", 68.7, 117, 72, 5902],
+    ["Jr.", 67, 113, 72, 5464]
+  ]);
+  c.tees.forEach(function (t) {
+    var list = holes[t.name];
+    assert.strictEqual(list.length, 18);
+    assert.strictEqual(list.reduce(function (a, b) { return a + b; }, 0), t.yards, t.name + " hole yards");
+  });
+  var s = round({ course: c, tee: "Plates", indexes: ["10", "10", "", "", ""], allowance: "100" });
+  assert.strictEqual(s.slope, "140");
+  assert.strictEqual(Number(s.rating), 76.9);
+  assert.strictEqual(s.course.tees[0].yards, 7617);
+  assert.strictEqual(MP.coursePar(s), 72);
+  var idx = JSON.parse(fs.readFileSync(path.join(__dirname, "indexes.json"), "utf8"));
+  var feed = MP.parseIndexFile(idx);
+  assert.strictEqual(feed.ok, true, feed.errors && feed.errors.join("; "));
+  assert.strictEqual(feed.asOf, "2026-11-18");
+  assert.strictEqual(feed.players["sean frost"].index, "+2.4");
+  assert.strictEqual(feed.players["sean frost"].name, "Sean Frost");
+  assert.strictEqual(feed.players["jan pieterse"].index, "6.8");
+  assert.strictEqual(feed.players["charlie colby"].index, "11.0");
+  assert.strictEqual(feed.aliases["charles colby"], "charlie colby");
+  assert.strictEqual(feed.aliases["robert cooper"], "bob cooper");
+});
+
 test("GHIN post message is gross scores only, with the Nov 7 Annandale 41/41/82 card", function () {
   var s = MP.defaultState();
   s.format = "singles"; s.game = "nassau"; s.useHcp = true; s.allowance = "100";
