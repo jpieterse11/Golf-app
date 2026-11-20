@@ -399,6 +399,59 @@ test("Trinity Forest is the GHIN card: par 72, eight men's tees, hole yards sum 
   assert.strictEqual(feed.aliases["robert cooper"], "bob cooper");
 });
 
+test("BlackHorse North is par 72 with men's and women's tees, and hole yards sum to each total", function () {
+  var raw = courses.filter(function (c) { return c.id === "blackhorse-north"; })[0];
+  assert.ok(raw, "course missing");
+  var checked = MP.checkCourse(raw);
+  assert.strictEqual(checked.ok, true, checked.errors && checked.errors.join("; "));
+  var c = checked.course;
+  assert.strictEqual(c.name, "BlackHorse Golf Club - North");
+  assert.strictEqual(c.location, "Cypress, TX");
+  same(c.par, [4, 3, 5, 4, 4, 3, 4, 5, 4, 4, 5, 4, 4, 3, 4, 3, 4, 5]);
+  assert.strictEqual(c.par.reduce(function (a, b) { return a + b; }, 0), 72);
+  same(c.si, [9, 13, 15, 1, 3, 11, 7, 17, 5, 4, 6, 8, 16, 18, 2, 12, 10, 14]);
+  var seen = {};
+  c.si.forEach(function (n) { seen[n] = (seen[n] || 0) + 1; });
+  for (var k = 1; k <= 18; k++) assert.strictEqual(seen[k], 1);
+  var holes = {
+    "Big Jake": [465, 211, 548, 420, 419, 179, 413, 522, 425, 457, 545, 441, 436, 159, 462, 214, 439, 546],
+    "Black": [437, 192, 525, 409, 419, 173, 379, 522, 425, 439, 545, 433, 399, 159, 456, 206, 429, 528],
+    "Blue": [400, 175, 499, 381, 392, 160, 360, 503, 407, 413, 510, 410, 373, 137, 436, 186, 396, 477],
+    "White": [395, 145, 488, 352, 377, 147, 343, 462, 371, 392, 463, 365, 359, 137, 417, 162, 385, 439],
+    "Red": [343, 117, 439, 321, 349, 138, 311, 423, 326, 377, 430, 347, 316, 107, 383, 140, 348, 425],
+    "Green": [322, 93, 400, 284, 302, 99, 282, 391, 314, 349, 420, 291, 283, 72, 349, 98, 316, 400]
+  };
+  same(c.tees.map(function (t) { return [t.name, t.rating, t.slope, t.par, t.yards]; }), [
+    ["Big Jake", 75.7, 138, 72, 7301],
+    ["Black", 74.7, 134, 72, 7075],
+    ["Blue", 72.7, 132, 72, 6615],
+    ["White", 71.1, 123, 72, 6199],
+    ["Red", 68.4, 118, 72, 5640],
+    ["Green", 65.7, 114, 72, 5065],
+    ["Big Jake (Women)", 83.2, 149, 72, 7301],
+    ["Black (Women)", 81.9, 144, 72, 7075],
+    ["Blue (Women)", 79.4, 140, 72, 6615],
+    ["White (Women)", 77.1, 132, 72, 6199],
+    ["Red (Women)", 74, 127, 72, 5640],
+    ["Green (Women)", 70.5, 120, 72, 5065]
+  ]);
+  c.tees.forEach(function (t) {
+    var base = t.name.replace(" (Women)", "");
+    var list = holes[base];
+    assert.strictEqual(list.length, 18);
+    assert.strictEqual(list.reduce(function (a, b) { return a + b; }, 0), t.yards, t.name + " hole yards");
+  });
+  var s = round({ course: c, tee: "Big Jake", indexes: ["10", "10", "", "", ""], allowance: "100" });
+  assert.strictEqual(s.slope, "138");
+  assert.strictEqual(Number(s.rating), 75.7);
+  assert.strictEqual(s.course.tees[0].yards, 7301);
+  assert.strictEqual(MP.coursePar(s), 72);
+  var women = round({ course: c, tee: "Big Jake (Women)", indexes: ["10", "10", "", "", ""], allowance: "100" });
+  assert.strictEqual(women.slope, "149");
+  assert.strictEqual(Number(women.rating), 83.2);
+  assert.strictEqual(women.course.tees[6].yards, 7301);
+});
+
 test("GHIN post message is gross scores only, with the Nov 7 Annandale 41/41/82 card", function () {
   var s = MP.defaultState();
   s.format = "singles"; s.game = "nassau"; s.useHcp = true; s.allowance = "100";
