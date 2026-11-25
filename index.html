@@ -227,7 +227,7 @@ var MP = (function () {
       skinN: 4, skinAmt: "5", skinMode: "net", skinCarry: true, skinLeft: "dies",
       vegasAmt: "1", vegasMode: "net", vegasFlip: false,
       stbN: 4, stbAmt: "1", /* Stableford: 1-5 players, $ per point */
-      nineAmt: "1", /* Nine Points (5-3-1): exactly 3 players, $ per point */
+      nineAmt: "1", nineSweep: false, /* Nine Points (5-3-1): exactly 3 players, $ per point; sweep (3+ net takes all 9) is off */
       wolfN: 4, wolfAmt: "2", wolfMode: "net", wolfLone: "2", wolfBlindOn: false, wolfBlind: "3", wolfOrder: [0, 1, 2, 3, 4], wolf: emptyWolf(),
       birdOn: false, birdAmt: "5", birdNet: false,
       snakeOn: false, snakeAmt: "1", putts: emptyHoleStrs(), snakeLast: emptyHoleStrs(),
@@ -328,6 +328,7 @@ var MP = (function () {
     var bn = Math.round(Number(state.stbN)); state.stbN = bn >= 1 && bn <= 5 ? bn : 4;
     if (!(Number(state.stbAmt) >= 0) || String(state.stbAmt == null ? "" : state.stbAmt).trim() === "") state.stbAmt = d.stbAmt; /* older saves have no Stableford fields */
     if (!(Number(state.nineAmt) >= 0) || String(state.nineAmt == null ? "" : state.nineAmt).trim() === "") state.nineAmt = d.nineAmt; /* older saves have no Nine Points stake */
+    state.nineSweep = state.nineSweep === true; /* missing or anything else stays off */
     state.wolfN = wolfCount(state.wolfN);
     ["skinMode", "vegasMode", "wolfMode"].forEach(function (k) { if (state[k] !== "net" && state[k] !== "gross") state[k] = d[k]; });
     var o = state.wolfOrder, okOrder = Array.isArray(o) && o.length === 5 && [0, 1, 2, 3, 4].every(function (i) { return o.indexOf(i) >= 0; });
@@ -693,9 +694,15 @@ var MP = (function () {
 
   /* Nine Points (5-3-1), exactly 3 players. Points from NET score off the low player (calc.strokes is already that gap).
      Distinct nets: 5 / 3 / 1. Two tie for low: 4 / 4 / 1. Two tie for high: 5 / 2 / 2. All tie: 3 / 3 / 3.
+     Optional sweep: one player at least 3 net strokes better than both others takes 9, the others 0. A 2-stroke win and every tie stay on the normal split.
      A hole with any blank score is pending and awards nothing. Each pair settles (own points − other points) × $ per point. */
-  function nineSplit(nets) {
-    var vals = nets.slice(), seen = {}, keys = [], i;
+  function nineSplit(nets, sweep) {
+    var vals = nets.slice(), seen = {}, keys = [], i, low, nLow, margin;
+    if (sweep) {
+      low = Math.min.apply(null, vals); nLow = 0; margin = Infinity;
+      for (i = 0; i < vals.length; i++) { if (vals[i] === low) nLow++; else margin = Math.min(margin, vals[i] - low); }
+      if (nLow === 1 && margin >= 3) return vals.map(function (v) { return v === low ? 9 : 0; });
+    }
     for (i = 0; i < vals.length; i++) { seen[vals[i]] = (seen[vals[i]] || 0) + 1; if (keys.indexOf(vals[i]) < 0) keys.push(vals[i]); }
     keys.sort(function (a, b) { return a - b; });
     if (keys.length <= 1) return vals.map(function () { return 3; });
@@ -704,13 +711,14 @@ var MP = (function () {
     return vals.map(function (v) { return v === keys[0] ? 5 : 2; });
   }
   function ninePoints(state, calc) {
-    var active = calc.active, amt = Number(state.nineAmt) || 0;
-    var res = { amount: amt, pts: [0, 1, 2, 3, 4].map(function () { return HOLES.map(function () { return null; }); }), front: zero5(), back: zero5(), total: zero5(), net: zero5(), pairs: [], pending: [], partial: [], played: 0 };
+    var active = calc.active, amt = Number(state.nineAmt) || 0, sweepOn = state.nineSweep === true;
+    var res = { amount: amt, sweep: sweepOn, pts: [0, 1, 2, 3, 4].map(function () { return HOLES.map(function () { return null; }); }), swept: HOLES.map(function () { return false; }), front: zero5(), back: zero5(), total: zero5(), net: zero5(), pairs: [], pending: [], partial: [], played: 0 };
     HOLES.forEach(function (h) {
       var any = active.some(function (p) { var s = state.scores[p][h]; return String(s).trim() !== "" && !isNaN(Number(s)); });
       if (active.length !== 3 || !holeComplete(state, active, h)) { res.pending.push(h); if (any) res.partial.push(h); return; }
       var nets = active.map(function (p) { return Number(state.scores[p][h]) - calc.strokes[p][h]; });
-      var split = nineSplit(nets);
+      var split = nineSplit(nets, sweepOn);
+      res.swept[h] = sweepOn && split.indexOf(9) >= 0;
       active.forEach(function (p, i) {
         res.pts[p][h] = split[i]; res.total[p] += split[i];
         if (h < 9) res.front[p] += split[i]; else res.back[p] += split[i];
@@ -917,7 +925,7 @@ var MP = (function () {
       var na = ninePoints(prevS, ca), nb = ninePoints(nextS, cb);
       HOLES.forEach(function (h) {
         if (nb.pts[0][h] === null || (na.pts[0][h] === nb.pts[0][h] && na.pts[1][h] === nb.pts[1][h] && na.pts[2][h] === nb.pts[2][h])) return;
-        ev.push({ type: "nine", hole: h, text: "Nine Points #" + (h + 1) + ": " + cb.active.map(function (p) { return firstName(nextS, p) + " " + nb.pts[p][h]; }).join(", ") });
+        ev.push({ type: "nine", hole: h, text: "Nine Points #" + (h + 1) + ": " + cb.active.map(function (p) { return firstName(nextS, p) + " " + nb.pts[p][h]; }).join(", ") + (nb.swept[h] ? " (sweep)" : "") });
       });
     }
     if (nextS.game === "vegas") {
@@ -1709,7 +1717,9 @@ if (typeof module !== "undefined") module.exports = MP;
         '<p class="sub small">Default is $1 per point; change it any time. Each hole: net double eagle or better 5, eagle 4, birdie 3, par 2, bogey 1, double bogey or worse 0. Net uses each player\'s own full playing handicap (not strokes off the low man); a plus handicap gives strokes back on the easiest holes. Every pair of players settles the difference in total points × the $ per point. Only holes where everyone has a score are paid.</p>';
     } else if (S.game === "nine") {
       o += '<div class="grid2">' + txt("$ per point", "nineAmt", S.nineAmt, "", "decimal") + "<div></div></div>" +
-        '<p class="sub small">Default is $1 per point. On each hole the lowest net score gets 5, the middle 3 and the highest 1. Two tie for low: 4, 4 and 1. Two tie for high: 5, 2 and 2. All three tie: 3, 3 and 3. Net uses the same strokes as the other match games: off the low player, after the allowance. A hole with a blank score pays nothing yet. Each pair settles the difference in total points × the $ per point.</p>';
+        '<p class="sub small">Default is $1 per point. On each hole the lowest net score gets 5, the middle 3 and the highest 1. Two tie for low: 4, 4 and 1. Two tie for high: 5, 2 and 2. All three tie: 3, 3 and 3. Net uses the same strokes as the other match games: off the low player, after the allowance. A hole with a blank score pays nothing yet. Each pair settles the difference in total points × the $ per point.</p>' +
+        '<details><summary>Optional</summary>' + sw("Sweep: win a hole by 3+ net, take all 9", "nineSweep", S.nineSweep) +
+        '<p class="sub small">' + (S.nineSweep ? "On: if one player's net is at least 3 better than both others, that player gets 9 and the others get 0. A win by 2, and every tie, stays 5-3-1." : "Off (default): every hole uses 5-3-1, including a win by 3 or more.") + "</p></details>";
     } else {
       o += '<div class="grid2">' + txt("$ per point", "wolfAmt", S.wolfAmt, "", "decimal") + txt("Lone wolf ×", "wolfLone", S.wolfLone, "", "decimal") + "</div>" +
         '<label class="f" style="margin-top:10px">Scores used</label>' + seg("wolfMode", [["net", "Net (with strokes)"], ["gross", "Gross"]], S.wolfMode) +
@@ -1816,7 +1826,7 @@ if (typeof module !== "undefined") module.exports = MP;
     var np = MP.ninePoints(S, calc);
     var here = calc.active.map(function (p) { var x = np.pts[p][h]; return esc(lab(p)) + " " + (x === null ? '<span class="sub">–</span>' : "<b>" + x + "</b>"); }).join(" · ");
     var tot = calc.active.map(function (p) { return esc(lab(p)) + " " + np.total[p]; }).join(", ");
-    return '<div class="small" style="margin-top:4px"><b>Nine Points</b> (' + MP.money(np.amount) + " per point): hole " + (h + 1) + ": " + here + '. <span class="sub">Total: ' + tot + ".</span></div>";
+    return '<div class="small" style="margin-top:4px"><b>Nine Points</b> (' + MP.money(np.amount) + " per point): hole " + (h + 1) + ": " + here + (np.swept[h] ? " · <b>sweep</b>" : "") + '. <span class="sub">Total: ' + tot + ".</span></div>";
   }
   function gameCard(calc, h) {
     var o = '<div class="card"><b>' + { skins: "Skins", vegas: "Las Vegas", wolf: "Wolf", stableford: "Stableford", nine: "Nine Points" }[S.game] + " · hole " + (h + 1) + "</b>";
@@ -1860,7 +1870,7 @@ if (typeof module !== "undefined") module.exports = MP;
     o += '<div class="card">' + calc.active.map(function (p) {
       var st = calc.strokes[p][h], has = filled(p, h), sc = Number(S.scores[p][h]);
       return '<div class="pl"><div class="nm"><b>' + esc(nm(p)) + '</b><span class="dots">' + (st ? dotsOf(st) + "</span> <span class=\"sub small\">" + (st > 0 ? st + " stroke" + (st > 1 ? "s" : "") : "gives back " + -st + " (plus hcp)") : "</span><span class=\"sub small\">no stroke") +
-        (has && st ? " · net " + (sc - st) : "") + (stbH && stbH.pts[p][h] !== null ? " · <b>" + stbH.pts[p][h] + " pt" + (stbH.pts[p][h] === 1 ? "" : "s") + "</b>" : "") + (npH && npH.pts[p][h] !== null ? " · <b>" + npH.pts[p][h] + " pts</b>" : "") + '</span>' +
+        (has && st ? " · net " + (sc - st) : "") + (stbH && stbH.pts[p][h] !== null ? " · <b>" + stbH.pts[p][h] + " pt" + (stbH.pts[p][h] === 1 ? "" : "s") + "</b>" : "") + (npH && npH.pts[p][h] !== null ? " · <b>" + npH.pts[p][h] + " pts</b>" + (npH.swept[h] && npH.pts[p][h] === 9 ? " sweep" : "") : "") + '</span>' +
         (S.snakeOn ? '<button class="tp' + (S.putts[h].indexOf(String(p)) >= 0 ? " on" : "") + '" data-act="putt" data-p="' + p + '" aria-pressed="' + (S.putts[h].indexOf(String(p)) >= 0) + '">🐍 3-putt' + (S.putts[h].indexOf(String(p)) >= 0 ? " ✓" : "") + "</button>" : "") + '</div>' +
         '<button class="step" data-act="dec" data-p="' + p + '" aria-label="minus">−</button>' +
         '<input class="scr" type="number" inputmode="numeric" data-k="score" data-p="' + p + '" value="' + (has ? esc(S.scores[p][h]) : "") + '" placeholder="–">' +
@@ -1946,11 +1956,11 @@ if (typeof module !== "undefined") module.exports = MP;
       });
     });
     if (npc) {
-      o += '<tr class="mh"><td class="s">9 Pts</td><td colspan="' + n + '">Nine Points · ' + MP.money(npc.amount) + '/pt <span class="sub small">· 5-3-1 on the net score · blank hole pays nothing yet</span></td></tr>';
+      o += '<tr class="mh"><td class="s">9 Pts</td><td colspan="' + n + '">Nine Points · ' + MP.money(npc.amount) + '/pt <span class="sub small">· 5-3-1 on the net score' + (npc.sweep ? " · sweep = 3+ net takes 9" : "") + ' · blank hole pays nothing yet</span></td></tr>';
       calc.active.forEach(function (p) {
         o += '<tr><td class="s"><b class="small">' + esc(lab(p)) + " pts</b></td>" + cols.map(function (c) {
           if (c.t === "s") { var a = range(c.k)[0], b2 = range(c.k)[1], t = 0, any = false; for (var i = a; i <= b2; i++) if (npc.pts[p][i] !== null) { any = true; t += npc.pts[p][i]; } return '<td class="sum sb"><b>' + (any ? t : "") + "</b></td>"; }
-          var x = npc.pts[p][c.h]; return '<td class="sb">' + (x === null ? "" : "<b>" + x + "</b>") + "</td>";
+          var x = npc.pts[p][c.h]; return '<td class="sb">' + (x === null ? "" : "<b>" + x + "</b>" + (x === 9 && npc.swept[c.h] ? "<sup>sweep</sup>" : "")) + "</td>";
         }).join("") + "</tr>";
       });
     }
@@ -2017,7 +2027,7 @@ if (typeof module !== "undefined") module.exports = MP;
       }).join("") + "</tr>";
     }
     o += "</table></div>";
-    o += '<div class="legend">' + (snk ? "🐍 = snake moved to that player (bold initials = last to 3-putt on a hole with several). Every 3-putt is one snake (" + snk.total + " so far). " + (snk.holder === null ? "Nobody has the snake yet" : "Snake holder now: <b>" + esc(lab(snk.holder)) + "</b>") + ". " : "") + '● = stroke on that hole · ○ birdie · ◎ eagle · □ bogey or worse · tap a hole number or a score to edit it · scroll sideways for more' + (bd ? " · ★ eagle (counts double)" : "") + (S.game === "nassau" ? (S.autoPress ? ". Presses show as extra rows (F P1 = front press 1). " : ". ") + "A box like 3&amp;2 means that bet was decided." : S.game === "vegas" ? ". ↺ = number flipped by a birdie." : S.game === "wolf" ? ". ? = the wolf hasn't picked yet (hole not counted)." : S.game === "stableford" ? ". ▽ = stroke given back (plus handicap). Stableford points per hole: net birdie 3, par 2, bogey 1, double bogey or worse 0." : S.game === "nine" ? ". Nine Points: low net 5, middle 3, high 1. Ties are 4/4/1, 5/2/2 or 3/3/3. A blank score leaves that hole blank." : ".") + "</div>";
+    o += '<div class="legend">' + (snk ? "🐍 = snake moved to that player (bold initials = last to 3-putt on a hole with several). Every 3-putt is one snake (" + snk.total + " so far). " + (snk.holder === null ? "Nobody has the snake yet" : "Snake holder now: <b>" + esc(lab(snk.holder)) + "</b>") + ". " : "") + '● = stroke on that hole · ○ birdie · ◎ eagle · □ bogey or worse · tap a hole number or a score to edit it · scroll sideways for more' + (bd ? " · ★ eagle (counts double)" : "") + (S.game === "nassau" ? (S.autoPress ? ". Presses show as extra rows (F P1 = front press 1). " : ". ") + "A box like 3&amp;2 means that bet was decided." : S.game === "vegas" ? ". ↺ = number flipped by a birdie." : S.game === "wolf" ? ". ? = the wolf hasn't picked yet (hole not counted)." : S.game === "stableford" ? ". ▽ = stroke given back (plus handicap). Stableford points per hole: net birdie 3, par 2, bogey 1, double bogey or worse 0." : S.game === "nine" ? ". Nine Points: low net 5, middle 3, high 1. Ties are 4/4/1, 5/2/2 or 3/3/3." + (S.nineSweep ? " Sweep: a net win by 3 or more is marked sweep and takes all 9." : "") + " A blank score leaves that hole blank." : ".") + "</div>";
     o += '<button class="btn" data-act="go" data-v="results">See results and settle up</button>';
     return o;
   }
@@ -2137,7 +2147,7 @@ if (typeof module !== "undefined") module.exports = MP;
           o += '<div class="card"><b>Points</b><table><tr><th class="l">Player</th><th>Front</th><th>Back</th><th>Total</th><th>$</th></tr>' + orderN.map(function (p) {
             return '<tr><td class="l"><b>' + esc(lab(p)) + "</b></td><td>" + np.front[p] + "</td><td>" + np.back[p] + "</td><td><b>" + np.total[p] + '</b></td><td class="' + cls(all.nineNet[p]) + '">' + MP.signedMoney(all.nineNet[p]) + "</td></tr>";
           }).join("") + "</table>" +
-            '<p class="sub small">Low net 5, middle 3, high 1. Two tie for low: 4, 4 and 1. Two tie for high: 5, 2 and 2. All three tie: 3 each. Strokes are off the low player.' + (np.partial.length ? " Hole" + (np.partial.length === 1 ? " " : "s ") + np.partial.map(function (x) { return x + 1; }).join(", ") + (np.partial.length === 1 ? " is" : " are") + " missing a score, so " + (np.partial.length === 1 ? "it pays" : "they pay") + " nothing yet." : "") + "</p></div>";
+            '<p class="sub small">Low net 5, middle 3, high 1. Two tie for low: 4, 4 and 1. Two tie for high: 5, 2 and 2. All three tie: 3 each. Strokes are off the low player.' + (np.sweep ? " Sweep is on: a net win by 3 or more is 9-0-0." + (np.swept.some(function (x) { return x; }) ? " Sweep holes: " + np.swept.map(function (x, i) { return x ? i + 1 : 0; }).filter(Boolean).join(", ") + "." : "") : "") + (np.partial.length ? " Hole" + (np.partial.length === 1 ? " " : "s ") + np.partial.map(function (x) { return x + 1; }).join(", ") + (np.partial.length === 1 ? " is" : " are") + " missing a score, so " + (np.partial.length === 1 ? "it pays" : "they pay") + " nothing yet." : "") + "</p></div>";
           if (np.pairs.length) o += '<div class="card"><b>Head to head</b><table><tr><th class="l">Pair</th><th>Points</th><th>$</th></tr>' + np.pairs.map(function (r) {
             var hi = r.diff >= 0 ? r.a : r.b, lo = r.diff >= 0 ? r.b : r.a;
             return '<tr><td class="l">' + (r.diff === 0 ? esc(lab(r.a)) + " &amp; " + esc(lab(r.b)) : "<b>" + esc(lab(hi)) + "</b> over " + esc(lab(lo))) + "</td><td>" + (r.diff === 0 ? "tied" : "+" + Math.abs(r.diff)) + "</td><td>" + (r.diff === 0 ? "$0" : MP.money(Math.abs(r.money))) + "</td></tr>";

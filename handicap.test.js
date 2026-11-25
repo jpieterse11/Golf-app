@@ -390,8 +390,8 @@ test("Trinity Forest is the GHIN card: par 72, eight men's tees, hole yards sum 
   var idx = JSON.parse(fs.readFileSync(path.join(__dirname, "indexes.json"), "utf8"));
   var feed = MP.parseIndexFile(idx);
   assert.strictEqual(feed.ok, true, feed.errors && feed.errors.join("; "));
-  assert.strictEqual(feed.asOf, "2026-11-18");
-  assert.strictEqual(feed.players["sean frost"].index, "+2.4");
+  assert.strictEqual(feed.asOf, "2026-11-23");
+  assert.strictEqual(feed.players["sean frost"].index, "+2.0");
   assert.strictEqual(feed.players["sean frost"].name, "Sean Frost");
   assert.strictEqual(feed.players["jan pieterse"].index, "6.8");
   assert.strictEqual(feed.players["charlie colby"].index, "11.0");
@@ -621,6 +621,48 @@ test("Nine Points pays 5-3-1 for every tie, waits on a blank hole, and settles a
   assert.strictEqual(kept.game, "nine");
   assert.strictEqual(kept.nineAmt, "3");
   same(MP.activePlayers(kept), [0, 1, 2]);
+});
+
+test("Nine Points sweep gives 9-0-0 only for a net win of 3 or more, and stays off by default", function () {
+  same(MP.nineSplit([4, 7, 8], true), [9, 0, 0]);
+  same(MP.nineSplit([4, 7, 7], true), [9, 0, 0]);
+  same(MP.nineSplit([8, 4, 7], true), [0, 9, 0]);
+  same(MP.nineSplit([4, 6, 8], true), [5, 3, 1]);
+  same(MP.nineSplit([4, 6, 6], true), [5, 2, 2]);
+  same(MP.nineSplit([4, 4, 8], true), [4, 4, 1]);
+  same(MP.nineSplit([4, 4, 4], true), [3, 3, 3]);
+  same(MP.nineSplit([4, 7, 8], false), [5, 3, 1]);
+  same(MP.nineSplit([4, 7, 8]), [5, 3, 1]);
+
+  function scored(rows) {
+    var scores = MP.emptyScores();
+    rows.forEach(function (row, p) { row.forEach(function (v, h) { if (v !== "" && v != null) scores[p][h] = String(v); }); });
+    return scores;
+  }
+  var on = round({ slope: 113, rating: 72, teePar: 72, indexes: ["0", "0", "0", "", ""], game: "nine", scores: scored([[4, 4, 4], [7, 6, 4], [8, 8, 4]]) });
+  on.nineSweep = true;
+  var onPts = MP.ninePoints(on, MP.compute(on));
+  same([onPts.pts[0][0], onPts.pts[1][0], onPts.pts[2][0]], [9, 0, 0]);
+  assert.strictEqual(onPts.swept[0], true);
+  same([onPts.pts[0][1], onPts.pts[1][1], onPts.pts[2][1]], [5, 3, 1]);
+  assert.strictEqual(onPts.swept[1], false);
+  same([onPts.pts[0][2], onPts.pts[1][2], onPts.pts[2][2]], [3, 3, 3]);
+  assert.strictEqual(onPts.swept[2], false);
+  same(onPts.total.slice(0, 3), [17, 6, 4]);
+
+  var off = round({ slope: 113, rating: 72, teePar: 72, indexes: ["0", "0", "0", "", ""], game: "nine", scores: scored([[4], [7], [8]]) });
+  assert.strictEqual(off.nineSweep, false);
+  var offPts = MP.ninePoints(off, MP.compute(off));
+  same([offPts.pts[0][0], offPts.pts[1][0], offPts.pts[2][0]], [5, 3, 1]);
+  assert.strictEqual(offPts.swept[0], false);
+
+  var legacy = MP.defaultState();
+  delete legacy.nineSweep;
+  MP.normalizeGame(legacy);
+  assert.strictEqual(legacy.nineSweep, false);
+  legacy.nineSweep = true;
+  MP.normalizeGame(legacy);
+  assert.strictEqual(legacy.nineSweep, true);
 });
 
 if (failed) { console.error("\n" + failed + " failed"); process.exit(1); }
