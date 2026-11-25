@@ -390,7 +390,7 @@ test("Trinity Forest is the GHIN card: par 72, eight men's tees, hole yards sum 
   var idx = JSON.parse(fs.readFileSync(path.join(__dirname, "indexes.json"), "utf8"));
   var feed = MP.parseIndexFile(idx);
   assert.strictEqual(feed.ok, true, feed.errors && feed.errors.join("; "));
-  assert.strictEqual(feed.asOf, "2026-11-23");
+  assert.strictEqual(feed.asOf, "2026-11-25");
   assert.strictEqual(feed.players["sean frost"].index, "+2.0");
   assert.strictEqual(feed.players["sean frost"].name, "Sean Frost");
   assert.strictEqual(feed.players["jan pieterse"].index, "6.8");
