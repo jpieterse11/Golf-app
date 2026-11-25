@@ -395,8 +395,16 @@ test("Trinity Forest is the GHIN card: par 72, eight men's tees, hole yards sum 
   assert.strictEqual(feed.players["sean frost"].name, "Sean Frost");
   assert.strictEqual(feed.players["jan pieterse"].index, "6.8");
   assert.strictEqual(feed.players["charlie colby"].index, "11.0");
+  assert.strictEqual(feed.players["john lewis"].index, "6.1");
+  assert.strictEqual(feed.players["brad king"].index, "11.4");
+  assert.strictEqual(feed.players["norm labrador"].name, "Norm Labrador");
+  assert.strictEqual(feed.players["norm labrador"].index, "11.8");
+  assert.strictEqual(feed.players["michael buchanan"].index, "17.8");
+  assert.strictEqual(feed.players["scott mcbride"].index, "15.1");
+  assert.strictEqual(Object.keys(feed.players).length, 27);
   assert.strictEqual(feed.aliases["charles colby"], "charlie colby");
   assert.strictEqual(feed.aliases["robert cooper"], "bob cooper");
+  assert.strictEqual(feed.aliases["norman labrador"], "norm labrador");
 });
 
 test("BlackHorse North is par 72 with men's and women's tees, and hole yards sum to each total", function () {
